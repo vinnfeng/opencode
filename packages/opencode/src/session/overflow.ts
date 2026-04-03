@@ -3,7 +3,9 @@ import type { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import type { MessageV2 } from "./message-v2"
 
-const COMPACTION_BUFFER = 20_000
+// [Mify perf] Increased buffer to trigger compaction earlier
+// 20K → 30K means overflow detected sooner, compaction kicks in with more headroom
+const COMPACTION_BUFFER = 30_000
 
 export function isOverflow(input: { cfg: Config.Info; tokens: MessageV2.Assistant["tokens"]; model: Provider.Model }) {
   if (input.cfg.compaction?.auto === false) return false

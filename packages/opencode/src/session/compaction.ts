@@ -32,8 +32,11 @@ export namespace SessionCompaction {
     ),
   }
 
-  export const PRUNE_MINIMUM = 20_000
-  export const PRUNE_PROTECT = 40_000
+  // [Mify perf] Tuned for more aggressive compaction:
+  // - PRUNE_MINIMUM: 20K → 10K (compress harder, keep less old context)
+  // - PRUNE_PROTECT: 40K → 20K (protect zone halved, compress sooner)
+  export const PRUNE_MINIMUM = 10_000
+  export const PRUNE_PROTECT = 20_000
   const PRUNE_PROTECTED_TOOLS = ["skill"]
 
   export interface Interface {

@@ -14,8 +14,12 @@ export namespace Truncate {
   const log = Log.create({ service: "truncation" })
   const RETENTION = Duration.days(7)
 
-  export const MAX_LINES = 2000
-  export const MAX_BYTES = 50 * 1024
+  // [Mify perf] Tighter tool output limits to slow context growth:
+  // - MAX_LINES: 2000 → 1000 (halved)
+  // - MAX_BYTES: 50KB → 25KB (halved)
+  // Full output still saved to disk via spillover, agent can read if needed
+  export const MAX_LINES = 1000
+  export const MAX_BYTES = 25 * 1024
   export const DIR = TRUNCATION_DIR
   export const GLOB = path.join(TRUNCATION_DIR, "*")
 
