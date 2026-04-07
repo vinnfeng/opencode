@@ -93,7 +93,7 @@ bash scripts/upgrade.sh --dry-run
 
 ## 版本历史
 
-### v1.3.17+kaiqu.2 (2026-04-08)
+### v1.3.17+kaiqu.3 (2026-04-08)
 
 - ✅ 基于官方 v1.3.17（含 #21350 #21355 修复）
 - ✅ 性能补丁：`perf: aggressive compaction and tighter tool output limits`（编译进二进制）
@@ -103,6 +103,7 @@ bash scripts/upgrade.sh --dry-run
 - ✅ 原生 compaction 启用：`auto: true, prune: true`
 - ✅ 自动化升级脚本（`upgrade.sh` + `install-binary.sh`）
 - ✅ oh-my-opencode 插件已重新启用（修复 `[Reconciler] Unknown component type: spinner` crash，在 `app.tsx` 首行注册 opentui-spinner 副作用）
+- ✅ oh-my-opencode 插件实际加载验证通过（v3.14.0，via file:// 绕过代理安装问题，compaction/context-pruner/tool-truncator 全部激活）
 
 ---
 
