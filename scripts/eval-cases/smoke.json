@@ -1,0 +1,108 @@
+[
+  {
+    "id": "smoke_read_file",
+    "description": "能读取并描述文件内容",
+    "tags": ["smoke", "read"],
+    "prompt": "读取 README.md 的第一行，告诉我它是什么项目",
+    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "timeout": 60,
+    "assertions": [
+      { "type": "no_error" },
+      { "type": "tool_used", "tool": "read" },
+      { "type": "output_contains", "pattern": "opencode" }
+    ]
+  },
+  {
+    "id": "smoke_list_files",
+    "description": "能列出目录结构",
+    "tags": ["smoke", "read"],
+    "prompt": "列出 scripts/ 目录下有哪些文件",
+    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "timeout": 60,
+    "assertions": [
+      { "type": "no_error" },
+      { "type": "output_contains", "pattern": "upgrade\\.sh|install-binary\\.sh|eval-runner" }
+    ]
+  },
+  {
+    "id": "smoke_search_code",
+    "description": "能用 grep 在代码库中搜索",
+    "tags": ["smoke", "search"],
+    "prompt": "搜索代码中所有使用 PRUNE_MINIMUM 的地方，告诉我在哪个文件第几行",
+    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "timeout": 90,
+    "assertions": [
+      { "type": "no_error" },
+      { "type": "tool_used", "tool": "grep" },
+      { "type": "output_contains", "pattern": "compaction\\.ts|PRUNE_MINIMUM" }
+    ]
+  },
+  {
+    "id": "smoke_write_file",
+    "description": "能创建新文件",
+    "tags": ["smoke", "write"],
+    "prompt": "在当前目录创建一个名为 eval-test-output.txt 的文件，内容写入：eval_ok",
+    "dir": "/tmp",
+    "timeout": 60,
+    "teardown": ["rm -f /tmp/eval-test-output.txt"],
+    "assertions": [
+      { "type": "no_error" },
+      { "type": "file_exists", "path": "/tmp/eval-test-output.txt" },
+      { "type": "file_contains", "path": "/tmp/eval-test-output.txt", "pattern": "eval_ok" }
+    ]
+  },
+  {
+    "id": "smoke_bash_exec",
+    "description": "能执行 bash 命令并读取输出",
+    "tags": ["smoke", "bash"],
+    "prompt": "运行 echo 'hello_eval' 并告诉我输出是什么",
+    "dir": "/tmp",
+    "timeout": 60,
+    "assertions": [
+      { "type": "no_error" },
+      { "type": "tool_used", "tool": "bash" },
+      { "type": "output_contains", "pattern": "hello_eval" }
+    ]
+  },
+  {
+    "id": "smoke_edit_file",
+    "description": "能编辑现有文件",
+    "tags": ["smoke", "edit"],
+    "prompt": "在 /tmp/eval-edit-test.txt 中，把 PLACEHOLDER 替换成 REPLACED",
+    "dir": "/tmp",
+    "setup": ["echo 'line1\\nPLACEHOLDER\\nline3' > /tmp/eval-edit-test.txt"],
+    "teardown": ["rm -f /tmp/eval-edit-test.txt"],
+    "timeout": 60,
+    "assertions": [
+      { "type": "no_error" },
+      { "type": "file_exists", "path": "/tmp/eval-edit-test.txt" },
+      { "type": "file_contains", "path": "/tmp/eval-edit-test.txt", "pattern": "REPLACED" },
+      { "type": "output_not_contains", "pattern": "error|失败" }
+    ]
+  },
+  {
+    "id": "smoke_reasoning",
+    "description": "能分析代码并回答架构问题",
+    "tags": ["smoke", "reasoning"],
+    "prompt": "看一下 packages/opencode/src/cli/cmd/run.ts，简短说明这个文件的主要职责是什么（一句话）",
+    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "timeout": 90,
+    "assertions": [
+      { "type": "no_error" },
+      { "type": "tool_used", "tool": "read" },
+      { "type": "output_contains", "pattern": "run|session|命令|message|prompt" }
+    ]
+  },
+  {
+    "id": "smoke_math",
+    "description": "无需工具的纯推理能力",
+    "tags": ["smoke", "reasoning"],
+    "prompt": "直接回答：斐波那契数列第 10 项是多少？",
+    "dir": "/tmp",
+    "timeout": 30,
+    "assertions": [
+      { "type": "no_error" },
+      { "type": "output_contains", "pattern": "55" }
+    ]
+  }
+]
