@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════
-#  开渠 (OpenCode) 一键配置安装脚本 — macOS & Linux
-#  用法：curl -fsSL <raw-url>/scripts/setup.sh | bash
-#  或：  bash scripts/setup.sh
+#  开渠 (OpenCode) 个人版一键安装 — macOS & Linux
+#  安装我们 fork 的自定义二进制 + 个人配置（含 key）
+#
+#  用法（macOS/Linux）：
+#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh)
 # ═══════════════════════════════════════════════════════════
 set -euo pipefail
 
+RELEASE_REPO="vinnfeng/opencode"
+RELEASE_TAG="v1.3.17-kaiqu.3"
+RELEASE_BASE="https://github.com/$RELEASE_REPO/releases/download/$RELEASE_TAG"
 CONFIG_REPO="https://github.com/vinnfeng/opencode-config.git"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/opencode"
 
-# ── 颜色 ────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
 ok()   { echo -e "${GREEN}✅  $*${RESET}"; }
@@ -20,120 +24,92 @@ info() { echo -e "${BLUE}➜   $*${RESET}"; }
 
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}  开渠 OpenCode — 一键配置安装                  ${RESET}"
+echo -e "${BOLD}  开渠 OpenCode 个人版 — 一键安装              ${RESET}"
+echo -e "${BOLD}  $RELEASE_TAG                                 ${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 echo ""
 
-# ── 1. 检测平台 ───────────────────────────────────────────────
+# ── 1. 平台检测 ───────────────────────────────────────────────
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 info "平台: $OS / $ARCH"
 
+case "$OS-$ARCH" in
+  Darwin-arm64)  BINARY_NAME="opencode-darwin-arm64" ;;
+  Darwin-x86_64) BINARY_NAME="opencode-darwin-x64" ;;
+  Linux-x86_64)  BINARY_NAME="opencode-linux-x64" ;;
+  Linux-aarch64) BINARY_NAME="opencode-linux-arm64" ;;
+  *) err "不支持的平台: $OS-$ARCH" ;;
+esac
+
 # ── 2. 检查依赖 ───────────────────────────────────────────────
-for cmd in git node npm; do
-  if ! command -v "$cmd" &>/dev/null; then
-    err "缺少依赖: $cmd。请先安装后重试。"
-  fi
+for cmd in git curl; do
+  command -v "$cmd" &>/dev/null || err "缺少依赖: $cmd"
 done
 
-# ── 3. 安装 opencode（如未安装）────────────────────────────────
+# ── 3. 下载并安装我们的自定义二进制 ──────────────────────────
+DOWNLOAD_URL="$RELEASE_BASE/$BINARY_NAME"
+
+# 找到 opencode 的安装位置
 if command -v opencode &>/dev/null; then
-  CURRENT_VER=$(opencode --version 2>/dev/null || echo "unknown")
-  ok "opencode 已安装: $CURRENT_VER"
+  INSTALL_PATH="$(command -v opencode)"
+  info "找到已安装的 opencode: $INSTALL_PATH"
 else
-  info "安装 opencode-ai..."
-  npm install -g opencode-ai || err "opencode 安装失败，请检查 npm 权限"
-  ok "opencode 安装完成: $(opencode --version 2>/dev/null || echo 'ok')"
+  # 默认安装到 /usr/local/bin
+  INSTALL_PATH="/usr/local/bin/opencode"
+  info "将安装到: $INSTALL_PATH"
 fi
+
+info "下载 $BINARY_NAME ($RELEASE_TAG)..."
+TMP_BIN="$(mktemp)"
+curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" || err "下载失败: $DOWNLOAD_URL"
+chmod +x "$TMP_BIN"
+
+# 替换二进制（需要写权限）
+if [ -w "$(dirname "$INSTALL_PATH")" ]; then
+  mv "$TMP_BIN" "$INSTALL_PATH"
+else
+  sudo mv "$TMP_BIN" "$INSTALL_PATH"
+fi
+ok "二进制已安装: $INSTALL_PATH ($(opencode --version 2>/dev/null || echo $RELEASE_TAG))"
 
 # ── 4. 克隆或更新配置仓库 ────────────────────────────────────
 if [ -d "$CONFIG_DIR/.git" ]; then
   info "配置目录已存在，拉取最新..."
   cd "$CONFIG_DIR"
-  CURRENT_BRANCH=$(git branch --show-current)
-  git pull origin "$CURRENT_BRANCH" --rebase 2>&1 | tail -3
-  ok "配置已更新 (分支: $CURRENT_BRANCH)"
+  git pull origin "$(git branch --show-current)" --rebase 2>&1 | tail -2
+  ok "配置已更新"
 else
-  if [ -d "$CONFIG_DIR" ] && [ "$(ls -A "$CONFIG_DIR" 2>/dev/null)" ]; then
-    warn "~/.config/opencode 已存在且非空，备份到 ~/.config/opencode.bak..."
-    mv "$CONFIG_DIR" "${CONFIG_DIR}.bak.$(date +%Y%m%d%H%M%S)"
-  fi
-  info "克隆配置仓库..."
+  [ -d "$CONFIG_DIR" ] && mv "$CONFIG_DIR" "${CONFIG_DIR}.bak.$(date +%Y%m%d%H%M%S)"
+  info "克隆个人配置..."
   git clone "$CONFIG_REPO" "$CONFIG_DIR"
-  ok "配置仓库克隆完成"
+  ok "配置克隆完成"
 fi
 
+# ── 5. 选分支（macOS 用 main，Linux 用 main）────────────────
 cd "$CONFIG_DIR"
+git checkout main 2>/dev/null || true
 
-# ── 5. 选择分支 ───────────────────────────────────────────────
-if [ "$OS" = "Linux" ]; then
-  TARGET_BRANCH="main"
-elif [ "$OS" = "Darwin" ]; then
-  TARGET_BRANCH="main"
-else
-  TARGET_BRANCH="main"
-fi
-
-if git show-ref --verify --quiet "refs/remotes/origin/$TARGET_BRANCH"; then
-  git checkout "$TARGET_BRANCH" 2>/dev/null || true
-fi
-
-# ── 6. 修复 plugin 路径（适配本机缓存路径）────────────────────
+# ── 6. 修复 plugin 路径（适配本机缓存）────────────────────────
 PLUGIN_FILE="$CONFIG_DIR/opencode.jsonc"
 OMO_CACHE_PATH="$CACHE_DIR/node_modules/oh-my-opencode"
-
-if [ -f "$PLUGIN_FILE" ]; then
-  if [ -d "$OMO_CACHE_PATH" ]; then
-    # 缓存目录存在，使用 file:// 路径（绕过代理问题）
-    NEW_PLUGIN="file://$OMO_CACHE_PATH"
-    # 用 node 替换（避免 sed 的跨平台差异）
-    node -e "
-      const fs = require('fs');
-      const path = '$PLUGIN_FILE';
-      let content = fs.readFileSync(path, 'utf8');
-      content = content.replace(
-        /\"file:\/\/[^\"]*oh-my-opencode[^\"]*\"/,
-        '\"$NEW_PLUGIN\"'
-      );
-      fs.writeFileSync(path, content);
-    " && info "plugin 路径已更新 → file://$OMO_CACHE_PATH"
-  else
-    # 缓存不存在，切回 npm 安装方式
-    node -e "
-      const fs = require('fs');
-      const path = '$PLUGIN_FILE';
-      let content = fs.readFileSync(path, 'utf8');
-      content = content.replace(
-        /\"file:\/\/[^\"]*oh-my-opencode[^\"]*\"/,
-        '\"oh-my-opencode@latest\"'
-      );
-      fs.writeFileSync(path, content);
-    " && info "plugin 路径已重置为 npm 安装: oh-my-opencode@latest"
-  fi
+if [ -f "$PLUGIN_FILE" ] && [ -d "$OMO_CACHE_PATH" ]; then
+  node -e "
+    const fs=require('fs'), p='$PLUGIN_FILE';
+    fs.writeFileSync(p, fs.readFileSync(p,'utf8').replace(
+      /\"file:\/\/[^\"]*oh-my-opencode[^\"]*\"/,
+      '\"file://$OMO_CACHE_PATH\"'
+    ));
+  " && info "plugin 路径已同步 → file://$OMO_CACHE_PATH"
 fi
 
-# ── 7. 安装配置依赖（如有 package.json）────────────────────────
-if [ -f "$CONFIG_DIR/package.json" ]; then
-  info "安装配置依赖..."
-  cd "$CONFIG_DIR"
-  if command -v bun &>/dev/null; then
-    bun install --silent 2>/dev/null || npm install --silent
-  else
-    npm install --silent
-  fi
-fi
-
-# ── 8. 完成 ───────────────────────────────────────────────────
+# ── 7. 完成 ───────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
-ok "安装完成！"
+ok "安装完成！opencode 已是我们的自定义版本。"
 echo ""
+echo -e "  版本:     ${BOLD}$RELEASE_TAG${RESET}"
 echo -e "  配置目录: ${BOLD}$CONFIG_DIR${RESET}"
-echo -e "  运行方式: ${BOLD}opencode${RESET}"
-echo ""
-echo -e "  可用 Agent（按 Tab 切换）:"
-echo -e "    • orchestrator — 主编排（默认）"
-echo -e "    • Sisyphus     — oh-my-opencode 全力模式"
-echo -e "    • Prometheus   — 任务规划"
+echo -e "  运行:     ${BOLD}opencode${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 echo ""
