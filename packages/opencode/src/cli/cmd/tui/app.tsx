@@ -1,3 +1,4 @@
+import "opentui-spinner/solid" // ensure spinner is registered before any reactive render
 import { render, TimeToFirstDraw, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { Clipboard } from "@tui/util/clipboard"
 import { Selection } from "@tui/util/selection"
