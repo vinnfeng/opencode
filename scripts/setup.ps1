@@ -117,23 +117,23 @@ function Generate-Config {
   }
 
   # 用 node 做 JSON 解析，确保 bailian 移除后结构合法
+  # 写临时 JS 文件避免 PS5.1 here-string 解析 bug
   $env:GEN_MIFY    = $mifyKey
   $env:GEN_BAILIAN = $bailianKey
   $env:GEN_TPL     = $TEMPLATE_FILE
   $env:GEN_OUT     = $CONFIG_FILE
-  node -e @"
-    const fs=require('fs'), e=process.env;
-    let c=fs.readFileSync(e.GEN_TPL,'utf8');
-    c=c.replaceAll('MIFY_API_KEY', e.GEN_MIFY);
-    c=c.replaceAll('PLUGIN_PATH', 'oh-my-opencode@latest');
-    const obj=JSON.parse(c);
-    if (e.GEN_BAILIAN) {
-      obj.provider.bailian.options.apiKey=e.GEN_BAILIAN;
-    } else {
-      delete obj.provider.bailian;
-    }
-    fs.writeFileSync(e.GEN_OUT, JSON.stringify(obj, null, 2));
-"@
+  $tmpJs = [System.IO.Path]::GetTempFileName() + ".js"
+  @(
+    "var fs=require('fs'),e=process.env;"
+    "var c=fs.readFileSync(e.GEN_TPL,'utf8');"
+    "c=c.split('MIFY_API_KEY').join(e.GEN_MIFY);"
+    "c=c.split('PLUGIN_PATH').join('oh-my-opencode@latest');"
+    "var obj=JSON.parse(c);"
+    "if(e.GEN_BAILIAN){obj.provider.bailian.options.apiKey=e.GEN_BAILIAN;}else{delete obj.provider.bailian;}"
+    "fs.writeFileSync(e.GEN_OUT,JSON.stringify(obj,null,2));"
+  ) -join "`n" | Set-Content $tmpJs -Encoding UTF8
+  node $tmpJs
+  Remove-Item $tmpJs -ErrorAction SilentlyContinue
   $env:GEN_MIFY=$null; $env:GEN_BAILIAN=$null; $env:GEN_TPL=$null; $env:GEN_OUT=$null
   ok "opencode.jsonc 已生成"
 }
@@ -321,15 +321,10 @@ Write-Host "  配置:     $CONFIG_DIR" -ForegroundColor White
 Write-Host "  Key 文件: $KEYS_FILE (仅本机可见)" -ForegroundColor Yellow
 Write-Host "  运行:     opencode （重开 PowerShell 后生效）" -ForegroundColor White
 Write-Host ""
-$SETUP_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.ps1"
-Write-Host "  后续常用命令（直接粘贴运行）：" -ForegroundColor White
-Write-Host "    更新所有 key:    irm $SETUP_URL | iex  # 或 .\setup.ps1 --keys（本地）" -ForegroundColor Cyan
-Write-Host "    只换 Mify key:   & ([scriptblock]::Create((irm $SETUP_URL))) --key mify" -ForegroundColor Cyan
-Write-Host "    只换百炼 key:    & ([scriptblock]::Create((irm $SETUP_URL))) --key bailian" -ForegroundColor Cyan
-Write-Host "    只更新二进制:    & ([scriptblock]::Create((irm $SETUP_URL))) --binary" -ForegroundColor Cyan
-Write-Host "    回退上一版本:    & ([scriptblock]::Create((irm $SETUP_URL))) --rollback" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  💡 或保存到本地，后续直接 .\opencode-setup.ps1 --keys：" -ForegroundColor White
-Write-Host "    Invoke-WebRequest -Uri $SETUP_URL -OutFile `"`$env:USERPROFILE\opencode-setup.ps1`"" -ForegroundColor Cyan
+Write-Host "  后续常用命令（在 vinnfeng/opencode 克隆目录的 scripts\ 下运行）：" -ForegroundColor White
+Write-Host "    .\setup.ps1 --keys      # 更新所有 key" -ForegroundColor Cyan
+Write-Host "    .\setup.ps1 --key mify  # 只换 Mify key" -ForegroundColor Cyan
+Write-Host "    .\setup.ps1 --binary    # 只更新二进制" -ForegroundColor Cyan
+Write-Host "    .\setup.ps1 --rollback  # 回退上一版本" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 Write-Host ""
