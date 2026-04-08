@@ -35,14 +35,15 @@ write_key() {
   local name="$1" value="$2"
   mkdir -p "$(dirname "$KEYS_FILE")"
   if [ -f "$KEYS_FILE" ] && grep -qE "^${name}=" "$KEYS_FILE"; then
+    WKEY_NAME="$name" WKEY_VALUE="$value" WKEY_FILE="$KEYS_FILE" \
     node -e "
-      const fs=require('fs'), f='$KEYS_FILE';
-      fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(
-        /^${name}=.*$/m, '${name}=$value'
-      ));
+      const fs=require('fs');
+      const f=process.env.WKEY_FILE, n=process.env.WKEY_NAME, v=process.env.WKEY_VALUE;
+      const re=new RegExp('^' + n + '=.*$', 'm');
+      fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(re, n + '=' + v));
     "
   else
-    echo "${name}=${value}" >> "$KEYS_FILE"
+    printf '%s=%s\n' "$name" "$value" >> "$KEYS_FILE"
   fi
   chmod 600 "$KEYS_FILE"
 }
@@ -132,11 +133,12 @@ info "生成 opencode.jsonc..."
 
 MIFY_KEY="$(read_key MIFY_API_KEY)"
 
+GEN_MIFY="$MIFY_KEY" GEN_TPL="$TEMPLATE_FILE" GEN_OUT="$CONFIG_FILE" \
 node -e "
-  const fs=require('fs'), p='$TEMPLATE_FILE';
-  let c=fs.readFileSync(p,'utf8');
-  c=c.replaceAll('MIFY_API_KEY', '$MIFY_KEY');
-  fs.writeFileSync('$CONFIG_FILE', c);
+  const fs=require('fs'), e=process.env;
+  let c=fs.readFileSync(e.GEN_TPL,'utf8');
+  c=c.replaceAll('MIFY_API_KEY', e.GEN_MIFY);
+  fs.writeFileSync(e.GEN_OUT, c);
 "
 ok "opencode.jsonc 已生成"
 

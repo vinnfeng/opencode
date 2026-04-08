@@ -38,15 +38,16 @@ write_key() {
   local name="$1" value="$2"
   mkdir -p "$(dirname "$KEYS_FILE")"
   if [ -f "$KEYS_FILE" ] && grep -qE "^${name}=" "$KEYS_FILE"; then
-    # 替换已有行（macOS/Linux 兼容）
+    # 通过环境变量传值，避免 shell 注入
+    WKEY_NAME="$name" WKEY_VALUE="$value" WKEY_FILE="$KEYS_FILE" \
     node -e "
-      const fs=require('fs'), f='$KEYS_FILE';
-      fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(
-        /^${name}=.*$/m, '${name}=$value'
-      ));
+      const fs=require('fs');
+      const f=process.env.WKEY_FILE, n=process.env.WKEY_NAME, v=process.env.WKEY_VALUE;
+      const re=new RegExp('^' + n + '=.*$', 'm');
+      fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(re, n + '=' + v));
     "
   else
-    echo "${name}=${value}" >> "$KEYS_FILE"
+    printf '%s=%s\n' "$name" "$value" >> "$KEYS_FILE"
   fi
   chmod 600 "$KEYS_FILE"
 }
@@ -152,27 +153,30 @@ else
   warn "oh-my-opencode 缓存未找到，将使用在线版（需要网络）"
 fi
 
+GEN_MIFY="$MIFY_KEY" GEN_BAILIAN="$BAILIAN_KEY" GEN_PLUGIN="$PLUGIN_VAL" \
+GEN_TPL="$TEMPLATE_FILE" GEN_OUT="$CONFIG_FILE" \
 node -e "
-  const fs=require('fs'), p='$TEMPLATE_FILE';
-  let c=fs.readFileSync(p,'utf8');
-  c=c.replaceAll('MIFY_API_KEY', '$MIFY_KEY');
-  c=c.replaceAll('BAILIAN_API_KEY', '$BAILIAN_KEY');
-  c=c.replaceAll('PLUGIN_PATH', '$PLUGIN_VAL');
-  fs.writeFileSync('$CONFIG_FILE', c);
+  const fs=require('fs'), e=process.env;
+  let c=fs.readFileSync(e.GEN_TPL,'utf8');
+  c=c.replaceAll('MIFY_API_KEY', e.GEN_MIFY);
+  c=c.replaceAll('BAILIAN_API_KEY', e.GEN_BAILIAN);
+  c=c.replaceAll('PLUGIN_PATH', e.GEN_PLUGIN);
+  fs.writeFileSync(e.GEN_OUT, c);
 "
 ok "opencode.jsonc 已生成"
 
 # ── 6. 下载并安装我们的自定义二进制 ──────────────────────────
 DOWNLOAD_URL="$RELEASE_BASE/$BINARY_NAME"
+VERSION_STAMP="$CONFIG_DIR/.installed_version"
 
 if command -v opencode &>/dev/null; then
   INSTALL_PATH="$(command -v opencode)"
-  CURRENT_VER="$(opencode --version 2>/dev/null | tr -d '[:space:]' || true)"
-  if [ "$CURRENT_VER" = "$RELEASE_TAG" ]; then
+  INSTALLED_TAG="$(cat "$VERSION_STAMP" 2>/dev/null | tr -d '[:space:]' || true)"
+  if [ "$INSTALLED_TAG" = "$RELEASE_TAG" ]; then
     ok "二进制已是最新版 ($RELEASE_TAG)，跳过下载"
     SKIP_BINARY=1
   else
-    info "当前版本: ${CURRENT_VER:-未知}，将更新至 $RELEASE_TAG"
+    info "已安装: ${INSTALLED_TAG:-未知}，将更新至 $RELEASE_TAG"
     SKIP_BINARY=0
   fi
 else
@@ -191,6 +195,7 @@ if [ "$SKIP_BINARY" -eq 0 ]; then
   else
     sudo mv "$TMP_BIN" "$INSTALL_PATH"
   fi
+  echo "$RELEASE_TAG" > "$VERSION_STAMP"
   ok "二进制已安装: $INSTALL_PATH ($RELEASE_TAG)"
 fi
 

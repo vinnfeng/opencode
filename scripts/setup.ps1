@@ -154,17 +154,16 @@ $DOWNLOAD_URL = "$RELEASE_BASE/$BINARY_NAME"
 New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
 $INSTALL_PATH = Join-Path $INSTALL_DIR "opencode.exe"
 
+$VERSION_STAMP = Join-Path $CONFIG_DIR ".installed_version"
 $SKIP_BINARY = $false
 if (Test-Path $INSTALL_PATH) {
-  try {
-    $currentVer = (& $INSTALL_PATH --version 2>$null).Trim()
-    if ($currentVer -eq $RELEASE_TAG) {
-      ok "二进制已是最新版 ($RELEASE_TAG)，跳过下载"
-      $SKIP_BINARY = $true
-    } else {
-      info "当前版本: $currentVer，将更新至 $RELEASE_TAG"
-    }
-  } catch { }
+  $installedTag = if (Test-Path $VERSION_STAMP) { (Get-Content $VERSION_STAMP -Raw).Trim() } else { "" }
+  if ($installedTag -eq $RELEASE_TAG) {
+    ok "二进制已是最新版 ($RELEASE_TAG)，跳过下载"
+    $SKIP_BINARY = $true
+  } else {
+    info "已安装: $(if ($installedTag) { $installedTag } else { '未知' })，将更新至 $RELEASE_TAG"
+  }
 }
 
 if (-not $SKIP_BINARY) {
@@ -175,6 +174,7 @@ if (-not $SKIP_BINARY) {
   } catch {
     err "下载失败: $DOWNLOAD_URL`n$_"
   }
+  Set-Content $VERSION_STAMP $RELEASE_TAG -Encoding UTF8
   ok "二进制已安装: $INSTALL_PATH ($RELEASE_TAG)"
 }
 
