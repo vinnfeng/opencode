@@ -18,8 +18,9 @@
 #Requires -Version 5.1
 param(
   [switch]$keys,
-  [string]$key    = "",
+  [string]$key      = "",
   [switch]$binary,
+  [switch]$rollback,
   [switch]$h,
   [switch]$help
 )
@@ -33,7 +34,9 @@ $INSTALL_DIR   = Join-Path $env:LOCALAPPDATA "opencode-bin"
 $KEYS_FILE     = Join-Path $CONFIG_DIR ".keys"
 $TEMPLATE_FILE = Join-Path $CONFIG_DIR "opencode.template.jsonc"
 $CONFIG_FILE   = Join-Path $CONFIG_DIR "opencode.jsonc"
-$VERSION_STAMP = Join-Path $CONFIG_DIR ".installed_version"
+$VERSION_STAMP          = Join-Path $CONFIG_DIR ".installed_version"
+$PREVIOUS_VERSION_STAMP = Join-Path $CONFIG_DIR ".previous_version"
+$BACKUP_DIR             = Join-Path $env:LOCALAPPDATA "opencode-bin\backups"
 
 function ok   { param($m) Write-Host "✅  $m" -ForegroundColor Green }
 function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
@@ -104,6 +107,7 @@ function Prompt-Key { param($name, $label, [bool]$required=$true, $hint="")
 function Generate-Config {
   info "生成 opencode.jsonc..."
   if (-not (Test-Path $TEMPLATE_FILE)) { err "模板文件不存在，请先完整安装一次" }
+  if (Test-Path $CONFIG_FILE) { Copy-Item $CONFIG_FILE "$CONFIG_FILE.bak" -Force }
 
   $mifyKey    = Read-Key "MIFY_API_KEY"
   $bailianKey = Read-Key "BAILIAN_API_KEY"
@@ -150,15 +154,19 @@ if ($h -or $help) {
   Write-Host "  只更新二进制（不动 key 和配置）" -ForegroundColor Cyan
   Write-Host "    .\setup.ps1 --binary"
   Write-Host ""
+  Write-Host "  回退到上一个版本" -ForegroundColor Cyan
+  Write-Host "    .\setup.ps1 --rollback"
+  Write-Host ""
   Write-Host "  可用 provider：mify（必填）、bailian（可选）" -ForegroundColor Gray
   exit 0
 }
 
 # ── 模式判断 ──────────────────────────────────────────────────
 $MODE = "full"
-if ($binary) { $MODE = "binary" }
+if ($binary)   { $MODE = "binary" }
+elseif ($rollback) { $MODE = "rollback" }
 elseif ($keys) { $MODE = "keys" }
-elseif ($key) { $MODE = "key" }
+elseif ($key)  { $MODE = "key" }
 
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
@@ -187,6 +195,31 @@ if ($MODE -eq "key") {
   }
   Generate-Config
   ok "Key 更新完成，配置已重新生成"
+  exit 0
+}
+
+# ── rollback 模式 ─────────────────────────────────────────────
+if ($MODE -eq "rollback") {
+  Write-Host "  模式：回退" -ForegroundColor White
+  $prevTag = if (Test-Path $PREVIOUS_VERSION_STAMP) { (Get-Content $PREVIOUS_VERSION_STAMP -Raw).Trim() } else { "" }
+  if ([string]::IsNullOrEmpty($prevTag)) { err "没有可用的回退版本（从未更新过，或备份已清除）" }
+
+  $prevBin = Join-Path $BACKUP_DIR "opencode-$prevTag.exe"
+  if (-not (Test-Path $prevBin)) { err "备份二进制不存在: $prevBin" }
+
+  $curTag = if (Test-Path $VERSION_STAMP) { (Get-Content $VERSION_STAMP -Raw).Trim() } else { "未知" }
+  info "回退: $curTag → $prevTag"
+  Copy-Item $prevBin $INSTALL_PATH -Force
+  Set-Content $VERSION_STAMP $prevTag -Encoding UTF8
+
+  if (Test-Path "$CONFIG_FILE.bak") {
+    Copy-Item "$CONFIG_FILE.bak" $CONFIG_FILE -Force
+    ok "opencode.jsonc 已还原"
+  } else {
+    warn "opencode.jsonc 备份不存在，配置未还原"
+  }
+
+  ok "已回退到 $prevTag`: $INSTALL_PATH"
   exit 0
 }
 
@@ -249,8 +282,17 @@ if ($installedTag -eq $RELEASE_TAG -and $MODE -ne "binary") {
   ok "已是最新版 ($RELEASE_TAG)，无需更新"
   exit 0
 } else {
-  if ($installedTag) { info "已安装: $installedTag → 更新至 $RELEASE_TAG" }
-  else { info "首次安装，下载 $BINARY_NAME..." }
+  if ($installedTag) {
+    info "已安装: $installedTag → 更新至 $RELEASE_TAG"
+    # 更新前备份旧二进制，用于回退
+    New-Item -ItemType Directory -Force -Path $BACKUP_DIR | Out-Null
+    $backupPath = Join-Path $BACKUP_DIR "opencode-$installedTag.exe"
+    if (Test-Path $INSTALL_PATH) {
+      Copy-Item $INSTALL_PATH $backupPath -Force
+      Set-Content $PREVIOUS_VERSION_STAMP $installedTag -Encoding UTF8
+      info "旧版本已备份: $backupPath"
+    }
+  } else { info "首次安装，下载 $BINARY_NAME..." }
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   try {
     Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $INSTALL_PATH -UseBasicParsing
@@ -285,6 +327,7 @@ Write-Host "    更新所有 key:    irm $SETUP_URL | iex  # 或 .\setup.ps1 --k
 Write-Host "    只换 Mify key:   & ([scriptblock]::Create((irm $SETUP_URL))) --key mify" -ForegroundColor Cyan
 Write-Host "    只换百炼 key:    & ([scriptblock]::Create((irm $SETUP_URL))) --key bailian" -ForegroundColor Cyan
 Write-Host "    只更新二进制:    & ([scriptblock]::Create((irm $SETUP_URL))) --binary" -ForegroundColor Cyan
+Write-Host "    回退上一版本:    & ([scriptblock]::Create((irm $SETUP_URL))) --rollback" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  💡 或保存到本地，后续直接 .\opencode-setup.ps1 --keys：" -ForegroundColor White
 Write-Host "    Invoke-WebRequest -Uri $SETUP_URL -OutFile `"`$env:USERPROFILE\opencode-setup.ps1`"" -ForegroundColor Cyan

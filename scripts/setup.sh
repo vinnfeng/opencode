@@ -28,6 +28,8 @@ KEYS_FILE="$CONFIG_DIR/.keys"
 TEMPLATE_FILE="$CONFIG_DIR/opencode.template.jsonc"
 CONFIG_FILE="$CONFIG_DIR/opencode.jsonc"
 VERSION_STAMP="$CONFIG_DIR/.installed_version"
+PREVIOUS_VERSION_STAMP="$CONFIG_DIR/.previous_version"
+BACKUP_DIR="$CACHE_DIR/backups"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -37,7 +39,7 @@ err()  { echo -e "${RED}❌  $*${RESET}"; exit 1; }
 info() { echo -e "${BLUE}➜   $*${RESET}"; }
 
 # ── 参数解析 ─────────────────────────────────────────────────
-MODE="full"       # full | keys | key | binary
+MODE="full"       # full | keys | key | binary | rollback
 TARGET_KEY=""     # 指定单个 key 时的 provider 名（mify / bailian）
 
 show_help() {
@@ -56,6 +58,9 @@ show_help() {
   echo -e "  ${BLUE}只更新二进制（不动 key 和配置）${RESET}"
   echo -e "    bash <(curl -fsSL $U) --binary"
   echo ""
+  echo -e "  ${BLUE}回退到上一个版本${RESET}"
+  echo -e "    bash <(curl -fsSL $U) --rollback"
+  echo ""
   echo -e "  ${BLUE}可用 provider：${RESET}mify（必填）、bailian（可选）"
   echo ""
   echo -e "  ${BLUE}保存到本地后可直接执行：${RESET}"
@@ -70,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --keys|-k)   MODE="keys" ;;
     --key)       MODE="key"; TARGET_KEY="${2:-}"; shift ;;
     --binary|-b) MODE="binary" ;;
+    --rollback|-r) MODE="rollback" ;;
     *) echo -e "${RED}❌  未知参数: $1${RESET}"; echo "运行 --help 查看用法"; exit 1 ;;
   esac
   shift
@@ -142,6 +148,7 @@ prompt_key() {
 generate_config() {
   info "生成 opencode.jsonc..."
   [ -f "$TEMPLATE_FILE" ] || err "模板文件不存在: $TEMPLATE_FILE，请先完整安装一次"
+  [ -f "$CONFIG_FILE" ] && cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
 
   local mify_key bailian_key plugin_val
   mify_key="$(read_key MIFY_API_KEY)"
@@ -226,6 +233,34 @@ if [ "$MODE" = "binary" ]; then
   echo ""
 fi
 
+# ── rollback 模式 ─────────────────────────────────────────────
+if [ "$MODE" = "rollback" ]; then
+  echo -e "${BOLD}  模式：回退${RESET}"
+  echo ""
+  PREV_TAG="$(cat "$PREVIOUS_VERSION_STAMP" 2>/dev/null | tr -d '[:space:]' || true)"
+  [ -z "$PREV_TAG" ] && err "没有可用的回退版本（从未更新过，或备份已清除）"
+
+  PREV_BIN="$BACKUP_DIR/opencode-${PREV_TAG}"
+  [ -f "$PREV_BIN" ] || err "备份二进制不存在: $PREV_BIN"
+
+  INSTALL_PATH="$(command -v opencode 2>/dev/null || echo "/usr/local/bin/opencode")"
+  info "回退: $(cat "$VERSION_STAMP" 2>/dev/null || echo "未知") → $PREV_TAG"
+
+  if [ -w "$(dirname "$INSTALL_PATH")" ]; then cp "$PREV_BIN" "$INSTALL_PATH"
+  else sudo cp "$PREV_BIN" "$INSTALL_PATH"; fi
+  echo "$PREV_TAG" > "$VERSION_STAMP"
+
+  if [ -f "${CONFIG_FILE}.bak" ]; then
+    cp "${CONFIG_FILE}.bak" "$CONFIG_FILE"
+    ok "opencode.jsonc 已还原"
+  else
+    warn "opencode.jsonc 备份不存在，配置未还原"
+  fi
+
+  ok "已回退到 $PREV_TAG: $INSTALL_PATH"
+  exit 0
+fi
+
 # ── 以下为 full / binary 模式共用 ─────────────────────────────
 
 # 1. 平台检测
@@ -282,6 +317,13 @@ if command -v opencode &>/dev/null; then
     exit 0
   else
     info "已安装: ${INSTALLED_TAG:-未知} → 更新至 $RELEASE_TAG"
+    # 更新前备份旧二进制，用于回退
+    if [ -n "$INSTALLED_TAG" ]; then
+      mkdir -p "$BACKUP_DIR"
+      cp "$INSTALL_PATH" "$BACKUP_DIR/opencode-${INSTALLED_TAG}"
+      echo "$INSTALLED_TAG" > "$PREVIOUS_VERSION_STAMP"
+      info "旧版本已备份: $BACKUP_DIR/opencode-${INSTALLED_TAG}"
+    fi
     TMP_BIN="$(mktemp)"
     curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" || err "下载失败: $DOWNLOAD_URL"
     chmod +x "$TMP_BIN"
@@ -318,6 +360,7 @@ echo -e "    更新所有 key:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --keys${R
 echo -e "    只换 Mify key:   ${BLUE}bash <(curl -fsSL $SETUP_URL) --key mify${RESET}"
 echo -e "    只换百炼 key:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --key bailian${RESET}"
 echo -e "    只更新二进制:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --binary${RESET}"
+echo -e "    回退上一版本:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --rollback${RESET}"
 echo -e ""
 echo -e "  💡 或保存脚本到本地，后续直接 ~/opencode-setup.sh --keys："
 echo -e "    ${BLUE}curl -fsSL $SETUP_URL -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh${RESET}"
