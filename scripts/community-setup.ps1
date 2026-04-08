@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════════════
-#  开渠 (OpenCode) 社区版安装 — Windows (PowerShell)
+#  开渠 (OpenCode) 社区版安装/更新 — Windows (PowerShell)
 #  安装官方 opencode + Mify 配置 + 优化 agent 体系
-#  需要输入 Mify API Key
+#  Key 本地存储，不进 git，支持更新时保留上次配置
 #
 #  用法：
 #    irm https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/community-setup.ps1 | iex
@@ -9,17 +9,74 @@
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 
-$CONFIG_REPO = "https://github.com/vinnfeng/opencode-config.git"
-$CONFIG_DIR  = Join-Path $env:APPDATA "opencode"
+$CONFIG_REPO   = "https://github.com/vinnfeng/opencode-config.git"
+$CONFIG_DIR    = Join-Path $env:APPDATA "opencode"
+$KEYS_FILE     = Join-Path $CONFIG_DIR ".keys"
+$TEMPLATE_FILE = Join-Path $CONFIG_DIR "opencode.template.jsonc"
+$CONFIG_FILE   = Join-Path $CONFIG_DIR "opencode.jsonc"
 
 function ok   { param($m) Write-Host "✅  $m" -ForegroundColor Green }
 function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
 function info { param($m) Write-Host "➜   $m" -ForegroundColor Cyan }
 function err  { param($m) Write-Host "❌  $m" -ForegroundColor Red; exit 1 }
 
+# ── 工具函数：从 .keys 读取 key ──────────────────────────────
+function Read-Key { param($name)
+  if (Test-Path $KEYS_FILE) {
+    $line = Get-Content $KEYS_FILE | Where-Object { $_ -match "^${name}=" } | Select-Object -First 1
+    if ($line) { return $line.Substring($name.Length + 1) }
+  }
+  return ""
+}
+
+function Write-Key { param($name, $value)
+  New-Item -ItemType Directory -Force -Path (Split-Path $KEYS_FILE) | Out-Null
+  if (Test-Path $KEYS_FILE) {
+    $content = Get-Content $KEYS_FILE -Raw
+    if ($content -match "(?m)^${name}=") {
+      $content = $content -replace "(?m)^${name}=.*$", "${name}=${value}"
+      Set-Content $KEYS_FILE $content -Encoding UTF8 -NoNewline
+    } else {
+      Add-Content $KEYS_FILE "${name}=${value}" -Encoding UTF8
+    }
+  } else {
+    Set-Content $KEYS_FILE "${name}=${value}" -Encoding UTF8
+  }
+}
+
+function Mask-Key { param($k)
+  if ([string]::IsNullOrEmpty($k)) { return "(未设置)" }
+  if ($k.Length -le 12) { return $k.Substring(0,4) + "****" }
+  return $k.Substring(0,8) + "..." + $k.Substring($k.Length - 4)
+}
+
+function Prompt-Key { param($name, $label)
+  $current = Read-Key $name
+  Write-Host ""
+  Write-Host "  $label" -ForegroundColor White
+  if ($current) {
+    Write-Host "  当前值: $(Mask-Key $current)" -ForegroundColor Yellow
+    Write-Host "  直接回车保留当前，输入新值则更新：" -ForegroundColor Gray
+  } else {
+    Write-Host "  (未设置，请输入)" -ForegroundColor Yellow
+  }
+  $secureInput = Read-Host "  输入" -AsSecureString
+  $input = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+    [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureInput)
+  )
+  if ($input) {
+    Write-Key $name $input
+    ok "$label 已更新"
+  } elseif ($current) {
+    ok "$label 保留不变"
+  } else {
+    err "$label 不能为空，请重新运行并输入"
+  }
+}
+
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
-Write-Host "  开渠 OpenCode 社区版 — 安装配置 (Windows)    " -ForegroundColor White
+Write-Host "  开渠 OpenCode 社区版 — 安装/更新 (Windows)  " -ForegroundColor White
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 Write-Host ""
 
@@ -28,19 +85,7 @@ foreach ($cmd in @("git", "node", "npm")) {
   if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { err "缺少依赖: $cmd" }
 }
 
-# ── 2. 输入 Mify API Key ──────────────────────────────────────
-Write-Host "请输入你的 Mify API Key：" -ForegroundColor White
-Write-Host "（从内网 Mify 平台获取，格式：sk-...）" -ForegroundColor Gray
-$secureKey = Read-Host "Mify API Key" -AsSecureString
-$MIFY_KEY = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-  [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
-)
-if (-not $MIFY_KEY -or -not $MIFY_KEY.StartsWith("sk-")) {
-  err "Key 格式不对，应以 sk- 开头"
-}
-ok "Key 已输入"
-
-# ── 3. 安装官方 opencode ──────────────────────────────────────
+# ── 2. 安装官方 opencode ──────────────────────────────────────
 if (Get-Command opencode -ErrorAction SilentlyContinue) {
   ok "opencode 已安装"
 } else {
@@ -50,7 +95,7 @@ if (Get-Command opencode -ErrorAction SilentlyContinue) {
   ok "opencode 安装完成"
 }
 
-# ── 4. 克隆配置仓库（community 分支）────────────────────────
+# ── 3. 克隆配置仓库（community 分支）────────────────────────
 if (Test-Path (Join-Path $CONFIG_DIR ".git")) {
   info "配置目录已存在，更新中..."
   Push-Location $CONFIG_DIR
@@ -71,13 +116,26 @@ if (Test-Path (Join-Path $CONFIG_DIR ".git")) {
   ok "配置克隆完成"
 }
 
-# ── 5. 替换 API Key 占位符 ────────────────────────────────────
-$pluginFile = Join-Path $CONFIG_DIR "opencode.jsonc"
-if (Test-Path $pluginFile) {
-  $content = (Get-Content $pluginFile -Raw).Replace("MIFY_API_KEY", $MIFY_KEY)
-  Set-Content $pluginFile $content -Encoding UTF8
-  ok "API Key 已写入配置"
-}
+# ── 4. 设置 API Key ──────────────────────────────────────────
+Write-Host ""
+Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
+Write-Host "  API Key 配置                                  " -ForegroundColor White
+Write-Host "  Key 仅保存在本机 $KEYS_FILE" -ForegroundColor Yellow
+Write-Host "  不进 git，安全可靠" -ForegroundColor Gray
+Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
+
+Prompt-Key "MIFY_API_KEY" "Mify API Key（格式：sk-...）"
+
+# ── 5. 生成 opencode.jsonc ───────────────────────────────────
+info "生成 opencode.jsonc..."
+if (-not (Test-Path $TEMPLATE_FILE)) { err "模板文件不存在: $TEMPLATE_FILE" }
+
+$MIFY_KEY = Read-Key "MIFY_API_KEY"
+
+$content = Get-Content $TEMPLATE_FILE -Raw -Encoding UTF8
+$content = $content.Replace("MIFY_API_KEY", $MIFY_KEY)
+Set-Content $CONFIG_FILE $content -Encoding UTF8
+ok "opencode.jsonc 已生成"
 
 # ── 6. 完成 ───────────────────────────────────────────────────
 Write-Host ""
@@ -85,6 +143,7 @@ Write-Host "══════════════════════�
 ok "安装完成！"
 Write-Host ""
 Write-Host "  配置目录: $CONFIG_DIR" -ForegroundColor White
+Write-Host "  Key 文件: $KEYS_FILE (仅本机可见)" -ForegroundColor Yellow
 Write-Host "  运行方式: opencode" -ForegroundColor White
 Write-Host ""
 Write-Host "  包含功能：" -ForegroundColor White
@@ -92,5 +151,6 @@ Write-Host "    • orchestrator agent（主编排，自动分工）" -Foregroun
 Write-Host "    • Sisyphus / Prometheus（oh-my-opencode 插件）" -ForegroundColor White
 Write-Host "    • Mify 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）" -ForegroundColor White
 Write-Host "    • 自动 compaction + context pruning" -ForegroundColor White
+Write-Host "  更新时只需重新运行本脚本，Key 自动从上次记录填入" -ForegroundColor Gray
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 Write-Host ""

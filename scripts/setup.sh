@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════
-#  开渠 (OpenCode) 个人版一键安装 — macOS & Linux
-#  安装我们 fork 的自定义二进制 + 个人配置（含 key）
+#  开渠 (OpenCode) 个人版一键安装/更新 — macOS & Linux
+#  安装我们 fork 的自定义二进制 + 配置（key 本地存储，不进 git）
 #
-#  用法（macOS/Linux）：
+#  用法：
 #    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh)
 # ═══════════════════════════════════════════════════════════
 set -euo pipefail
@@ -14,6 +14,9 @@ RELEASE_BASE="https://github.com/$RELEASE_REPO/releases/download/$RELEASE_TAG"
 CONFIG_REPO="https://github.com/vinnfeng/opencode-config.git"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/opencode"
+KEYS_FILE="$CONFIG_DIR/.keys"
+TEMPLATE_FILE="$CONFIG_DIR/opencode.template.jsonc"
+CONFIG_FILE="$CONFIG_DIR/opencode.jsonc"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -22,9 +25,68 @@ warn() { echo -e "${YELLOW}⚠️   $*${RESET}"; }
 err()  { echo -e "${RED}❌  $*${RESET}"; exit 1; }
 info() { echo -e "${BLUE}➜   $*${RESET}"; }
 
+# ── 工具函数：从 .keys 读取 key ──────────────────────────────
+read_key() {
+  local name="$1"
+  if [ -f "$KEYS_FILE" ]; then
+    grep -E "^${name}=" "$KEYS_FILE" 2>/dev/null | cut -d= -f2- | tr -d '\n' || true
+  fi
+}
+
+# 工具函数：写入 .keys（upsert）
+write_key() {
+  local name="$1" value="$2"
+  mkdir -p "$(dirname "$KEYS_FILE")"
+  if [ -f "$KEYS_FILE" ] && grep -qE "^${name}=" "$KEYS_FILE"; then
+    # 替换已有行（macOS/Linux 兼容）
+    node -e "
+      const fs=require('fs'), f='$KEYS_FILE';
+      fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(
+        /^${name}=.*$/m, '${name}=$value'
+      ));
+    "
+  else
+    echo "${name}=${value}" >> "$KEYS_FILE"
+  fi
+  chmod 600 "$KEYS_FILE"
+}
+
+# 工具函数：掩码显示 key（sk-xxxx...xxxx）
+mask_key() {
+  local k="$1"
+  if [ -z "$k" ]; then echo "(未设置)"; return; fi
+  local len=${#k}
+  if [ "$len" -le 12 ]; then echo "${k:0:4}****"; return; fi
+  echo "${k:0:8}...${k: -4}"
+}
+
+# ── 工具函数：交互式 key 设置 ────────────────────────────────
+prompt_key() {
+  local name="$1" label="$2" current
+  current="$(read_key "$name")"
+  echo -e ""
+  echo -e "${BOLD}${label}${RESET}"
+  if [ -n "$current" ]; then
+    echo -e "  当前值: ${YELLOW}$(mask_key "$current")${RESET}"
+    echo -e "  直接回车保留当前，输入新值则更新："
+  else
+    echo -e "  ${YELLOW}(未设置，请输入)${RESET}"
+  fi
+  read -rsp "  输入: " input
+  echo ""
+  if [ -n "$input" ]; then
+    write_key "$name" "$input"
+    ok "${label} 已更新"
+  elif [ -n "$current" ]; then
+    ok "${label} 保留不变"
+  else
+    err "${label} 不能为空，请重新运行并输入"
+  fi
+}
+
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}  开渠 OpenCode 个人版 — 一键安装              ${RESET}"
+echo -e "${BOLD}  开渠 OpenCode 个人版 — 安装/更新              ${RESET}"
 echo -e "${BOLD}  $RELEASE_TAG                                 ${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 echo ""
@@ -47,33 +109,7 @@ for cmd in git curl; do
   command -v "$cmd" &>/dev/null || err "缺少依赖: $cmd"
 done
 
-# ── 3. 下载并安装我们的自定义二进制 ──────────────────────────
-DOWNLOAD_URL="$RELEASE_BASE/$BINARY_NAME"
-
-# 找到 opencode 的安装位置
-if command -v opencode &>/dev/null; then
-  INSTALL_PATH="$(command -v opencode)"
-  info "找到已安装的 opencode: $INSTALL_PATH"
-else
-  # 默认安装到 /usr/local/bin
-  INSTALL_PATH="/usr/local/bin/opencode"
-  info "将安装到: $INSTALL_PATH"
-fi
-
-info "下载 $BINARY_NAME ($RELEASE_TAG)..."
-TMP_BIN="$(mktemp)"
-curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" || err "下载失败: $DOWNLOAD_URL"
-chmod +x "$TMP_BIN"
-
-# 替换二进制（需要写权限）
-if [ -w "$(dirname "$INSTALL_PATH")" ]; then
-  mv "$TMP_BIN" "$INSTALL_PATH"
-else
-  sudo mv "$TMP_BIN" "$INSTALL_PATH"
-fi
-ok "二进制已安装: $INSTALL_PATH ($(opencode --version 2>/dev/null || echo $RELEASE_TAG))"
-
-# ── 4. 克隆或更新配置仓库 ────────────────────────────────────
+# ── 3. 克隆或更新配置仓库 ────────────────────────────────────
 if [ -d "$CONFIG_DIR/.git" ]; then
   info "配置目录已存在，拉取最新..."
   cd "$CONFIG_DIR"
@@ -86,22 +122,68 @@ else
   ok "配置克隆完成"
 fi
 
-# ── 5. 选分支（macOS 用 main，Linux 用 main）────────────────
+# 切换到 main 分支
 cd "$CONFIG_DIR"
 git checkout main 2>/dev/null || true
 
-# ── 6. 修复 plugin 路径（适配本机缓存）────────────────────────
-PLUGIN_FILE="$CONFIG_DIR/opencode.jsonc"
-OMO_CACHE_PATH="$CACHE_DIR/node_modules/oh-my-opencode"
-if [ -f "$PLUGIN_FILE" ] && [ -d "$OMO_CACHE_PATH" ]; then
-  node -e "
-    const fs=require('fs'), p='$PLUGIN_FILE';
-    fs.writeFileSync(p, fs.readFileSync(p,'utf8').replace(
-      /\"file:\/\/[^\"]*oh-my-opencode[^\"]*\"/,
-      '\"file://$OMO_CACHE_PATH\"'
-    ));
-  " && info "plugin 路径已同步 → file://$OMO_CACHE_PATH"
+# ── 4. 设置 API Keys ─────────────────────────────────────────
+echo ""
+echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
+echo -e "${BOLD}  API Key 配置                                  ${RESET}"
+echo -e "  Key 仅保存在本机 ${YELLOW}$KEYS_FILE${RESET}，不进 git"
+echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
+
+prompt_key "MIFY_API_KEY"    "Mify API Key（全平台 Anthropic/OpenAI/Google 等）"
+prompt_key "BAILIAN_API_KEY" "百炼 API Key（阿里云 Qwen）"
+
+# ── 5. 生成 opencode.jsonc ───────────────────────────────────
+info "生成 opencode.jsonc..."
+[ -f "$TEMPLATE_FILE" ] || err "模板文件不存在: $TEMPLATE_FILE"
+
+MIFY_KEY="$(read_key MIFY_API_KEY)"
+BAILIAN_KEY="$(read_key BAILIAN_API_KEY)"
+
+# 找 oh-my-opencode 缓存路径
+OMO_PATH="$CACHE_DIR/node_modules/oh-my-opencode"
+if [ -d "$OMO_PATH" ]; then
+  PLUGIN_VAL="file://$OMO_PATH"
+else
+  PLUGIN_VAL="oh-my-opencode@latest"
+  warn "oh-my-opencode 缓存未找到，将使用在线版（需要网络）"
 fi
+
+node -e "
+  const fs=require('fs'), p='$TEMPLATE_FILE';
+  let c=fs.readFileSync(p,'utf8');
+  c=c.replaceAll('MIFY_API_KEY', '$MIFY_KEY');
+  c=c.replaceAll('BAILIAN_API_KEY', '$BAILIAN_KEY');
+  c=c.replaceAll('PLUGIN_PATH', '$PLUGIN_VAL');
+  fs.writeFileSync('$CONFIG_FILE', c);
+"
+ok "opencode.jsonc 已生成"
+
+# ── 6. 下载并安装我们的自定义二进制 ──────────────────────────
+DOWNLOAD_URL="$RELEASE_BASE/$BINARY_NAME"
+
+if command -v opencode &>/dev/null; then
+  INSTALL_PATH="$(command -v opencode)"
+  info "找到已安装的 opencode: $INSTALL_PATH"
+else
+  INSTALL_PATH="/usr/local/bin/opencode"
+  info "将安装到: $INSTALL_PATH"
+fi
+
+info "下载 $BINARY_NAME ($RELEASE_TAG)..."
+TMP_BIN="$(mktemp)"
+curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" || err "下载失败: $DOWNLOAD_URL"
+chmod +x "$TMP_BIN"
+
+if [ -w "$(dirname "$INSTALL_PATH")" ]; then
+  mv "$TMP_BIN" "$INSTALL_PATH"
+else
+  sudo mv "$TMP_BIN" "$INSTALL_PATH"
+fi
+ok "二进制已安装: $INSTALL_PATH ($(opencode --version 2>/dev/null || echo $RELEASE_TAG))"
 
 # ── 7. 完成 ───────────────────────────────────────────────────
 echo ""
@@ -110,6 +192,7 @@ ok "安装完成！opencode 已是我们的自定义版本。"
 echo ""
 echo -e "  版本:     ${BOLD}$RELEASE_TAG${RESET}"
 echo -e "  配置目录: ${BOLD}$CONFIG_DIR${RESET}"
+echo -e "  Key 文件: ${BOLD}$KEYS_FILE${RESET} (仅本机可见)"
 echo -e "  运行:     ${BOLD}opencode${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 echo ""
