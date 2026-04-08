@@ -2,19 +2,19 @@
 # ═══════════════════════════════════════════════════════════
 #  开渠 (OpenCode) 个人版一键安装/更新 — macOS & Linux
 #
-#  用法：
-#    # 首次安装 / 完整更新
+#  首次安装 / 完整更新：
 #    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh)
 #
-#    # 只更新所有 API Key
-#    ./setup.sh --keys
+#  带参数运行（同样用 curl 方式）：
+#    bash <(curl -fsSL ...setup.sh) --keys       # 只更新所有 key
+#    bash <(curl -fsSL ...setup.sh) --key mify   # 只换 Mify key
+#    bash <(curl -fsSL ...setup.sh) --key bailian # 只换百炼 key
+#    bash <(curl -fsSL ...setup.sh) --binary     # 只更新二进制
+#    bash <(curl -fsSL ...setup.sh) --help       # 查看帮助
 #
-#    # 只更新某个 provider 的 key
-#    ./setup.sh --key mify
-#    ./setup.sh --key bailian
-#
-#    # 只更新二进制（不动 key 和配置）
-#    ./setup.sh --binary
+#  也可保存到本地后使用：
+#    curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh
+#    ~/opencode-setup.sh --keys
 # ═══════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -41,21 +41,26 @@ MODE="full"       # full | keys | key | binary
 TARGET_KEY=""     # 指定单个 key 时的 provider 名（mify / bailian）
 
 show_help() {
+  local U="https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh"
   echo -e "${BOLD}用法：${RESET}"
   echo -e "  ${BLUE}首次安装 / 完整更新${RESET}"
-  echo -e "    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh)"
+  echo -e "    bash <(curl -fsSL $U)"
   echo ""
   echo -e "  ${BLUE}只更新所有 API Key${RESET}"
-  echo -e "    bash <(curl -fsSL ...setup.sh) --keys"
+  echo -e "    bash <(curl -fsSL $U) --keys"
   echo ""
   echo -e "  ${BLUE}只更新某个 provider 的 key${RESET}"
-  echo -e "    bash <(curl -fsSL ...setup.sh) --key mify"
-  echo -e "    bash <(curl -fsSL ...setup.sh) --key bailian"
+  echo -e "    bash <(curl -fsSL $U) --key mify"
+  echo -e "    bash <(curl -fsSL $U) --key bailian"
   echo ""
   echo -e "  ${BLUE}只更新二进制（不动 key 和配置）${RESET}"
-  echo -e "    bash <(curl -fsSL ...setup.sh) --binary"
+  echo -e "    bash <(curl -fsSL $U) --binary"
   echo ""
   echo -e "  ${BLUE}可用 provider：${RESET}mify（必填）、bailian（可选）"
+  echo ""
+  echo -e "  ${BLUE}保存到本地后可直接执行：${RESET}"
+  echo -e "    curl -fsSL $U -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh"
+  echo -e "    ~/opencode-setup.sh --keys"
   exit 0
 }
 
@@ -142,7 +147,7 @@ generate_config() {
   mify_key="$(read_key MIFY_API_KEY)"
   bailian_key="$(read_key BAILIAN_API_KEY)"
 
-  [ -z "$mify_key" ] && err "MIFY_API_KEY 未设置，请先运行：./setup.sh --key mify"
+  [ -z "$mify_key" ] && err "MIFY_API_KEY 未设置，请运行：bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh) --key mify"
 
   local omo_path="$CACHE_DIR/node_modules/oh-my-opencode"
   if [ -d "$omo_path" ]; then
@@ -307,10 +312,14 @@ echo -e "  配置:     ${BOLD}$CONFIG_DIR${RESET}"
 echo -e "  Key 文件: ${BOLD}$KEYS_FILE${RESET} (仅本机可见)"
 echo -e "  运行:     ${BOLD}opencode${RESET}"
 echo ""
-echo -e "  后续常用命令："
-echo -e "    更新所有 key:      ${BLUE}./setup.sh --keys${RESET}"
-echo -e "    只换 Mify key:     ${BLUE}./setup.sh --key mify${RESET}"
-echo -e "    只换百炼 key:      ${BLUE}./setup.sh --key bailian${RESET}"
-echo -e "    只更新二进制:      ${BLUE}./setup.sh --binary${RESET}"
+SETUP_URL="https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh"
+echo -e "  后续常用命令（直接粘贴运行）："
+echo -e "    更新所有 key:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --keys${RESET}"
+echo -e "    只换 Mify key:   ${BLUE}bash <(curl -fsSL $SETUP_URL) --key mify${RESET}"
+echo -e "    只换百炼 key:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --key bailian${RESET}"
+echo -e "    只更新二进制:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --binary${RESET}"
+echo -e ""
+echo -e "  💡 或保存脚本到本地，后续直接 ~/opencode-setup.sh --keys："
+echo -e "    ${BLUE}curl -fsSL $SETUP_URL -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 echo ""
