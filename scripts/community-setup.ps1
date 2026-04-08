@@ -4,7 +4,7 @@
 #  Key 本地存储，不进 git，支持更新时保留上次配置
 #
 #  用法：
-#    irm https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/community-setup.ps1 | iex
+#    .\community-setup.ps1  (在 vinnfeng/opencode 克隆目录的 scripts\ 下运行)
 # ═══════════════════════════════════════════════════════════
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
@@ -152,8 +152,7 @@ Write-Host "    • orchestrator agent（主编排，自动分工）" -Foregroun
 Write-Host "    • Sisyphus / Prometheus（oh-my-opencode 插件）" -ForegroundColor White
 Write-Host "    • Mify 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）" -ForegroundColor White
 Write-Host "    • 自动 compaction + context pruning" -ForegroundColor White
-$COMMUNITY_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/community-setup.ps1"
-Write-Host "  更新时重新运行，Key 自动从上次记录填入：" -ForegroundColor Gray
-Write-Host "    irm $COMMUNITY_URL | iex" -ForegroundColor Cyan
+Write-Host "  后续更新（在 vinnfeng/opencode 克隆目录的 scripts\ 下运行）：" -ForegroundColor Gray
+Write-Host "    .\community-setup.ps1      # Key 自动从上次记录填入" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 Write-Host ""
