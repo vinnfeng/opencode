@@ -138,13 +138,15 @@ generate_config() {
     const fs=require('fs'), e=process.env;
     let c=fs.readFileSync(e.GEN_TPL,'utf8');
     c=c.replaceAll('MIFY_API_KEY', e.GEN_MIFY);
-    c=c.replaceAll('BAILIAN_API_KEY', e.GEN_BAILIAN || 'BAILIAN_API_KEY_NOT_SET');
     c=c.replaceAll('PLUGIN_PATH', e.GEN_PLUGIN);
-    // 若 bailian key 未设置，移除整个 bailian provider 块
-    if (!e.GEN_BAILIAN) {
-      c=c.replace(/,\s*\n\s*\"bailian\":\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}/s, '');
+    // 用 JSON 解析确保 bailian 移除后结构合法
+    const obj=JSON.parse(c);
+    if (e.GEN_BAILIAN) {
+      obj.provider.bailian.options.apiKey=e.GEN_BAILIAN;
+    } else {
+      delete obj.provider.bailian;
     }
-    fs.writeFileSync(e.GEN_OUT, c);
+    fs.writeFileSync(e.GEN_OUT, JSON.stringify(obj, null, 2));
   "
   ok "opencode.jsonc 已生成"
 }
@@ -156,6 +158,11 @@ echo -e "${BOLD}  开渠 OpenCode 个人版 — 安装/更新              ${RES
 echo -e "${BOLD}  版本: $RELEASE_TAG                           ${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 echo ""
+
+# ── 依赖检查（所有模式共用）──────────────────────────────────
+for cmd in node git curl; do
+  command -v "$cmd" &>/dev/null || err "缺少依赖: $cmd（请先安装）"
+done
 
 # ── only-keys 模式 ────────────────────────────────────────────
 if [ "$MODE" = "keys" ]; then
@@ -206,11 +213,6 @@ case "$OS-$ARCH" in
   Linux-aarch64) BINARY_NAME="opencode-linux-arm64" ;;
   *) err "不支持的平台: $OS-$ARCH" ;;
 esac
-
-# 2. 检查依赖
-for cmd in git curl; do
-  command -v "$cmd" &>/dev/null || err "缺少依赖: $cmd（请先安装）"
-done
 
 if [ "$MODE" = "full" ]; then
   # 3. 克隆或更新配置仓库

@@ -110,18 +110,25 @@ function Generate-Config {
     err "MIFY_API_KEY 未设置，请先运行：.\setup.ps1 --key mify"
   }
 
-  $content = Get-Content $TEMPLATE_FILE -Raw -Encoding UTF8
-  $content = $content.Replace("MIFY_API_KEY", $mifyKey)
-  $content = $content.Replace("PLUGIN_PATH", "oh-my-opencode@latest")
-
-  if ([string]::IsNullOrEmpty($bailianKey)) {
-    # 移除整个 bailian provider 块
-    $content = $content -replace ',\s*\r?\n\s*"bailian"\s*:\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}', ''
-  } else {
-    $content = $content.Replace("BAILIAN_API_KEY", $bailianKey)
-  }
-
-  Set-Content $CONFIG_FILE $content -Encoding UTF8
+  # 用 node 做 JSON 解析，确保 bailian 移除后结构合法
+  $env:GEN_MIFY    = $mifyKey
+  $env:GEN_BAILIAN = $bailianKey
+  $env:GEN_TPL     = $TEMPLATE_FILE
+  $env:GEN_OUT     = $CONFIG_FILE
+  node -e @"
+    const fs=require('fs'), e=process.env;
+    let c=fs.readFileSync(e.GEN_TPL,'utf8');
+    c=c.replaceAll('MIFY_API_KEY', e.GEN_MIFY);
+    c=c.replaceAll('PLUGIN_PATH', 'oh-my-opencode@latest');
+    const obj=JSON.parse(c);
+    if (e.GEN_BAILIAN) {
+      obj.provider.bailian.options.apiKey=e.GEN_BAILIAN;
+    } else {
+      delete obj.provider.bailian;
+    }
+    fs.writeFileSync(e.GEN_OUT, JSON.stringify(obj, null, 2));
+"@
+  $env:GEN_MIFY=$null; $env:GEN_BAILIAN=$null; $env:GEN_TPL=$null; $env:GEN_OUT=$null
   ok "opencode.jsonc 已生成"
 }
 
