@@ -50,10 +50,11 @@ function Mask-Key { param($k)
   return $k.Substring(0,8) + "..." + $k.Substring($k.Length - 4)
 }
 
-function Prompt-Key { param($name, $label)
+function Prompt-Key { param($name, $label, $hint="")
   $current = Read-Key $name
   Write-Host ""
   Write-Host "  $label" -ForegroundColor White
+  if ($hint) { Write-Host "  $hint" -ForegroundColor Cyan }
   if ($current) {
     Write-Host "  当前值: $(Mask-Key $current)" -ForegroundColor Yellow
     Write-Host "  直接回车保留当前，输入新值则更新：" -ForegroundColor Gray
@@ -70,7 +71,7 @@ function Prompt-Key { param($name, $label)
   } elseif ($current) {
     ok "$label 保留不变"
   } else {
-    err "$label 不能为空，请重新运行并输入"
+    err "$label 为必填项，请重新运行并输入"
   }
 }
 
@@ -124,7 +125,7 @@ Write-Host "  Key 仅保存在本机 $KEYS_FILE" -ForegroundColor Yellow
 Write-Host "  不进 git，安全可靠" -ForegroundColor Gray
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 
-Prompt-Key "MIFY_API_KEY" "Mify API Key（获取地址：https://llm.mioffice.cn/apikey）"
+Prompt-Key "MIFY_API_KEY" "Mify API Key（必填）" "获取地址：https://llm.mioffice.cn/apikey"
 
 # ── 5. 生成 opencode.jsonc ───────────────────────────────────
 info "生成 opencode.jsonc..."

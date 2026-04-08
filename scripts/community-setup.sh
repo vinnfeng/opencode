@@ -59,10 +59,11 @@ mask_key() {
 
 # ── 工具函数：交互式 key 设置 ────────────────────────────────
 prompt_key() {
-  local name="$1" label="$2" current
+  local name="$1" label="$2" current hint="${3:-}"
   current="$(read_key "$name")"
   echo -e ""
   echo -e "${BOLD}${label}${RESET}"
+  [ -n "$hint" ] && echo -e "  ${BLUE}${hint}${RESET}"
   if [ -n "$current" ]; then
     echo -e "  当前值: ${YELLOW}$(mask_key "$current")${RESET}"
     echo -e "  直接回车保留当前，输入新值则更新："
@@ -77,7 +78,7 @@ prompt_key() {
   elif [ -n "$current" ]; then
     ok "${label} 保留不变"
   else
-    err "${label} 不能为空，请重新运行并输入"
+    err "${label} 为必填项，请重新运行并输入"
   fi
 }
 
@@ -125,7 +126,7 @@ echo -e "${BOLD}  API Key 配置                                  ${RESET}"
 echo -e "  Key 仅保存在本机 ${YELLOW}$KEYS_FILE${RESET}，不进 git"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 
-prompt_key "MIFY_API_KEY" "Mify API Key（获取地址：https://llm.mioffice.cn/apikey）"
+prompt_key "MIFY_API_KEY" "Mify API Key（必填）" "获取地址：https://llm.mioffice.cn/apikey"
 
 # ── 5. 生成 opencode.jsonc ───────────────────────────────────
 info "生成 opencode.jsonc..."

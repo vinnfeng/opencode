@@ -1,29 +1,43 @@
 # ═══════════════════════════════════════════════════════════
 #  开渠 (OpenCode) 个人版一键安装/更新 — Windows (PowerShell)
-#  安装我们 fork 的自定义二进制 + 配置（key 本地存储，不进 git）
 #
 #  用法：
+#    # 首次安装 / 完整更新（管理员 PowerShell 推荐）
 #    irm https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.ps1 | iex
+#
+#    # 只更新所有 API Key
+#    .\setup.ps1 --keys
+#
+#    # 只更新某个 provider 的 key
+#    .\setup.ps1 --key mify
+#    .\setup.ps1 --key bailian
+#
+#    # 只更新二进制（不动 key 和配置）
+#    .\setup.ps1 --binary
 # ═══════════════════════════════════════════════════════════
 #Requires -Version 5.1
+param(
+  [switch]$keys,
+  [string]$key    = "",
+  [switch]$binary
+)
 $ErrorActionPreference = "Stop"
 
-$RELEASE_TAG  = "v1.3.17-kaiqu.3"
-$RELEASE_BASE = "https://github.com/vinnfeng/opencode/releases/download/$RELEASE_TAG"
-$CONFIG_REPO  = "https://github.com/vinnfeng/opencode-config.git"
-$CONFIG_DIR   = Join-Path $env:APPDATA "opencode"
-$CACHE_DIR    = Join-Path $env:LOCALAPPDATA "opencode"
-$INSTALL_DIR  = Join-Path $env:LOCALAPPDATA "opencode-bin"
-$KEYS_FILE    = Join-Path $CONFIG_DIR ".keys"
-$TEMPLATE_FILE= Join-Path $CONFIG_DIR "opencode.template.jsonc"
-$CONFIG_FILE  = Join-Path $CONFIG_DIR "opencode.jsonc"
+$RELEASE_TAG   = "v1.3.17-kaiqu.3"
+$RELEASE_BASE  = "https://github.com/vinnfeng/opencode/releases/download/$RELEASE_TAG"
+$CONFIG_REPO   = "https://github.com/vinnfeng/opencode-config.git"
+$CONFIG_DIR    = Join-Path $env:APPDATA "opencode"
+$INSTALL_DIR   = Join-Path $env:LOCALAPPDATA "opencode-bin"
+$KEYS_FILE     = Join-Path $CONFIG_DIR ".keys"
+$TEMPLATE_FILE = Join-Path $CONFIG_DIR "opencode.template.jsonc"
+$CONFIG_FILE   = Join-Path $CONFIG_DIR "opencode.jsonc"
+$VERSION_STAMP = Join-Path $CONFIG_DIR ".installed_version"
 
 function ok   { param($m) Write-Host "✅  $m" -ForegroundColor Green }
 function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
 function info { param($m) Write-Host "➜   $m" -ForegroundColor Cyan }
 function err  { param($m) Write-Host "❌  $m" -ForegroundColor Red; exit 1 }
 
-# ── 工具函数：从 .keys 读取 key ──────────────────────────────
 function Read-Key { param($name)
   if (Test-Path $KEYS_FILE) {
     $line = Get-Content $KEYS_FILE | Where-Object { $_ -match "^${name}=" } | Select-Object -First 1
@@ -32,7 +46,6 @@ function Read-Key { param($name)
   return ""
 }
 
-# 工具函数：写入 .keys（upsert）
 function Write-Key { param($name, $value)
   New-Item -ItemType Directory -Force -Path (Split-Path $KEYS_FILE) | Out-Null
   if (Test-Path $KEYS_FILE) {
@@ -48,23 +61,27 @@ function Write-Key { param($name, $value)
   }
 }
 
-# 工具函数：掩码显示 key
 function Mask-Key { param($k)
   if ([string]::IsNullOrEmpty($k)) { return "(未设置)" }
   if ($k.Length -le 12) { return $k.Substring(0,4) + "****" }
   return $k.Substring(0,8) + "..." + $k.Substring($k.Length - 4)
 }
 
-# ── 工具函数：交互式 key 设置 ────────────────────────────────
-function Prompt-Key { param($name, $label)
+# required: $true=必填, $false=可选
+function Prompt-Key { param($name, $label, [bool]$required=$true, $hint="")
   $current = Read-Key $name
   Write-Host ""
   Write-Host "  $label" -ForegroundColor White
+  if ($hint) { Write-Host "  $hint" -ForegroundColor Cyan }
   if ($current) {
     Write-Host "  当前值: $(Mask-Key $current)" -ForegroundColor Yellow
     Write-Host "  直接回车保留当前，输入新值则更新：" -ForegroundColor Gray
   } else {
-    Write-Host "  (未设置，请输入)" -ForegroundColor Yellow
+    if ($required) {
+      Write-Host "  (未设置，必填)" -ForegroundColor Yellow
+    } else {
+      Write-Host "  (未设置，可选 — 直接回车跳过)" -ForegroundColor Yellow
+    }
   }
   $secureInput = Read-Host "  输入" -AsSecureString
   $input = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
@@ -75,99 +92,136 @@ function Prompt-Key { param($name, $label)
     ok "$label 已更新"
   } elseif ($current) {
     ok "$label 保留不变"
+  } elseif (-not $required) {
+    warn "$label 跳过（该 provider 在配置中将不可用）"
   } else {
-    err "$label 不能为空，请重新运行并输入"
+    err "$label 为必填项，请重新运行并输入"
   }
 }
+
+function Generate-Config {
+  info "生成 opencode.jsonc..."
+  if (-not (Test-Path $TEMPLATE_FILE)) { err "模板文件不存在，请先完整安装一次" }
+
+  $mifyKey    = Read-Key "MIFY_API_KEY"
+  $bailianKey = Read-Key "BAILIAN_API_KEY"
+
+  if ([string]::IsNullOrEmpty($mifyKey)) {
+    err "MIFY_API_KEY 未设置，请先运行：.\setup.ps1 --key mify"
+  }
+
+  $content = Get-Content $TEMPLATE_FILE -Raw -Encoding UTF8
+  $content = $content.Replace("MIFY_API_KEY", $mifyKey)
+  $content = $content.Replace("PLUGIN_PATH", "oh-my-opencode@latest")
+
+  if ([string]::IsNullOrEmpty($bailianKey)) {
+    # 移除整个 bailian provider 块
+    $content = $content -replace ',\s*\r?\n\s*"bailian"\s*:\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}', ''
+  } else {
+    $content = $content.Replace("BAILIAN_API_KEY", $bailianKey)
+  }
+
+  Set-Content $CONFIG_FILE $content -Encoding UTF8
+  ok "opencode.jsonc 已生成"
+}
+
+# ── 模式判断 ──────────────────────────────────────────────────
+$MODE = "full"
+if ($binary) { $MODE = "binary" }
+elseif ($keys) { $MODE = "keys" }
+elseif ($key) { $MODE = "key" }
 
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 Write-Host "  开渠 OpenCode 个人版 — 安装/更新 (Windows)  " -ForegroundColor White
-Write-Host "  $RELEASE_TAG" -ForegroundColor White
+Write-Host "  版本: $RELEASE_TAG" -ForegroundColor White
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 Write-Host ""
 
-# ── 1. 检查依赖 ───────────────────────────────────────────────
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) { err "缺少依赖: git" }
+# ── only-keys 模式 ────────────────────────────────────────────
+if ($MODE -eq "keys") {
+  Write-Host "  模式：更新所有 API Key" -ForegroundColor White
+  Prompt-Key "MIFY_API_KEY"    "Mify API Key（必填）"  $true  "获取地址：https://llm.mioffice.cn/apikey"
+  Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选）"  $false "阿里云百炼平台 Qwen 系列模型"
+  Generate-Config
+  ok "Key 更新完成，配置已重新生成"
+  exit 0
+}
 
-# ── 2. 克隆或更新配置仓库 ────────────────────────────────────
-if (Test-Path (Join-Path $CONFIG_DIR ".git")) {
-  info "配置目录已存在，拉取最新..."
-  Push-Location $CONFIG_DIR
-  $branch = & git branch --show-current
-  & git pull origin $branch --rebase 2>&1 | Select-Object -Last 2
-  Pop-Location
-  ok "配置已更新"
-} else {
-  if (Test-Path $CONFIG_DIR) {
-    Rename-Item -Path $CONFIG_DIR -NewName "${CONFIG_DIR}.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+# ── only-key 模式 ─────────────────────────────────────────────
+if ($MODE -eq "key") {
+  Write-Host "  模式：更新 $key API Key" -ForegroundColor White
+  switch ($key.ToLower()) {
+    "mify"    { Prompt-Key "MIFY_API_KEY"    "Mify API Key（必填）"  $true  "获取地址：https://llm.mioffice.cn/apikey" }
+    "bailian" { Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选）"  $false "阿里云百炼平台 Qwen 系列模型" }
+    default   { err "不支持的 provider: $key，可用值：mify / bailian" }
   }
-  info "克隆个人配置..."
-  & git clone $CONFIG_REPO $CONFIG_DIR
-  ok "配置克隆完成"
+  Generate-Config
+  ok "Key 更新完成，配置已重新生成"
+  exit 0
 }
 
-# 切换到 office-windows 分支
-Push-Location $CONFIG_DIR
-& git fetch origin 2>$null
-& git checkout office-windows 2>$null
-if ($LASTEXITCODE -ne 0) {
-  & git checkout -b office-windows --track origin/office-windows
+# ── 检查依赖 ──────────────────────────────────────────────────
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { err "缺少依赖: git（请先安装 Git for Windows）" }
+
+# ── full 模式：克隆/更新配置 + 设置 key ──────────────────────
+if ($MODE -eq "full") {
+  if (Test-Path (Join-Path $CONFIG_DIR ".git")) {
+    info "拉取最新配置..."
+    Push-Location $CONFIG_DIR
+    $branch = & git branch --show-current
+    & git pull origin $branch --rebase 2>&1 | Select-Object -Last 2
+    Pop-Location
+    ok "配置已更新"
+  } else {
+    if (Test-Path $CONFIG_DIR) {
+      Rename-Item -Path $CONFIG_DIR -NewName "${CONFIG_DIR}.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+    }
+    info "克隆个人配置..."
+    & git clone $CONFIG_REPO $CONFIG_DIR
+    ok "配置克隆完成"
+  }
+
+  Push-Location $CONFIG_DIR
+  & git fetch origin 2>$null
+  & git checkout office-windows 2>$null
+  if ($LASTEXITCODE -ne 0) { & git checkout -b office-windows --track origin/office-windows }
+  ok "已切换到 office-windows 分支"
+  Pop-Location
+
+  Write-Host ""
+  Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
+  Write-Host "  API Key 配置                                  " -ForegroundColor White
+  Write-Host "  Key 仅存于本机 $KEYS_FILE" -ForegroundColor Yellow
+  Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
+
+  Prompt-Key "MIFY_API_KEY"    "Mify API Key（必填 — 全平台模型入口）" $true  "获取地址：https://llm.mioffice.cn/apikey"
+  Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选 — 阿里云 Qwen）"   $false
+
+  Generate-Config
 }
-ok "已切换到 office-windows 分支"
-Pop-Location
 
-# ── 3. 设置 API Keys ─────────────────────────────────────────
-Write-Host ""
-Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
-Write-Host "  API Key 配置                                  " -ForegroundColor White
-Write-Host "  Key 仅保存在本机 $KEYS_FILE" -ForegroundColor Yellow
-Write-Host "  不进 git，安全可靠" -ForegroundColor Gray
-Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
-
-Prompt-Key "MIFY_API_KEY"    "Mify API Key（获取地址：https://llm.mioffice.cn/apikey）"
-Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（阿里云 Qwen）"
-
-# ── 4. 生成 opencode.jsonc ───────────────────────────────────
-info "生成 opencode.jsonc..."
-if (-not (Test-Path $TEMPLATE_FILE)) { err "模板文件不存在: $TEMPLATE_FILE" }
-
-$MIFY_KEY    = Read-Key "MIFY_API_KEY"
-$BAILIAN_KEY = Read-Key "BAILIAN_API_KEY"
-
-$content = Get-Content $TEMPLATE_FILE -Raw -Encoding UTF8
-$content = $content.Replace("MIFY_API_KEY", $MIFY_KEY)
-$content = $content.Replace("BAILIAN_API_KEY", $BAILIAN_KEY)
-# Windows 使用 oh-my-opencode@latest（无本地缓存路径替换需求）
-$content = $content.Replace("PLUGIN_PATH", "oh-my-opencode@latest")
-Set-Content $CONFIG_FILE $content -Encoding UTF8
-ok "opencode.jsonc 已生成"
-
-# ── 5. 下载并安装自定义二进制 ────────────────────────────────
+# ── 下载/更新二进制 ───────────────────────────────────────────
 $ARCH = if ([System.Environment]::Is64BitOperatingSystem) {
   if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
 } else { err "不支持 32 位系统" }
 
 $BINARY_NAME  = "opencode-windows-$ARCH.exe"
 $DOWNLOAD_URL = "$RELEASE_BASE/$BINARY_NAME"
-
-New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
 $INSTALL_PATH = Join-Path $INSTALL_DIR "opencode.exe"
 
-$VERSION_STAMP = Join-Path $CONFIG_DIR ".installed_version"
-$SKIP_BINARY = $false
-if (Test-Path $INSTALL_PATH) {
-  $installedTag = if (Test-Path $VERSION_STAMP) { (Get-Content $VERSION_STAMP -Raw).Trim() } else { "" }
-  if ($installedTag -eq $RELEASE_TAG) {
-    ok "二进制已是最新版 ($RELEASE_TAG)，跳过下载"
-    $SKIP_BINARY = $true
-  } else {
-    info "已安装: $(if ($installedTag) { $installedTag } else { '未知' })，将更新至 $RELEASE_TAG"
-  }
-}
+New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
 
-if (-not $SKIP_BINARY) {
-  info "下载 $BINARY_NAME ($RELEASE_TAG)..."
+$installedTag = if (Test-Path $VERSION_STAMP) { (Get-Content $VERSION_STAMP -Raw).Trim() } else { "" }
+
+if ($installedTag -eq $RELEASE_TAG -and $MODE -ne "binary") {
+  ok "二进制已是最新版 ($RELEASE_TAG)，跳过下载"
+} elseif ($installedTag -eq $RELEASE_TAG -and $MODE -eq "binary") {
+  ok "已是最新版 ($RELEASE_TAG)，无需更新"
+  exit 0
+} else {
+  if ($installedTag) { info "已安装: $installedTag → 更新至 $RELEASE_TAG" }
+  else { info "首次安装，下载 $BINARY_NAME..." }
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   try {
     Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $INSTALL_PATH -UseBasicParsing
@@ -178,7 +232,7 @@ if (-not $SKIP_BINARY) {
   ok "二进制已安装: $INSTALL_PATH ($RELEASE_TAG)"
 }
 
-# 加入 PATH（当前会话 + 用户永久）
+# 加入 PATH
 $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 if ($userPath -notlike "*$INSTALL_DIR*") {
   [Environment]::SetEnvironmentVariable("PATH", "$userPath;$INSTALL_DIR", "User")
@@ -186,15 +240,20 @@ if ($userPath -notlike "*$INSTALL_DIR*") {
   info "已将 $INSTALL_DIR 加入用户 PATH（重开 Shell 后生效）"
 }
 
-# ── 6. 完成 ───────────────────────────────────────────────────
+# ── 完成 ──────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
-ok "安装完成！opencode 已是我们的自定义版本。"
+ok "完成！"
 Write-Host ""
-Write-Host "  版本:       $RELEASE_TAG" -ForegroundColor White
-Write-Host "  安装位置:   $INSTALL_PATH" -ForegroundColor White
-Write-Host "  配置目录:   $CONFIG_DIR" -ForegroundColor White
-Write-Host "  Key 文件:   $KEYS_FILE (仅本机可见)" -ForegroundColor Yellow
-Write-Host "  运行方式:   opencode （重开 PowerShell 后生效）" -ForegroundColor White
+Write-Host "  版本:     $RELEASE_TAG" -ForegroundColor White
+Write-Host "  配置:     $CONFIG_DIR" -ForegroundColor White
+Write-Host "  Key 文件: $KEYS_FILE (仅本机可见)" -ForegroundColor Yellow
+Write-Host "  运行:     opencode （重开 PowerShell 后生效）" -ForegroundColor White
+Write-Host ""
+Write-Host "  后续常用命令：" -ForegroundColor White
+Write-Host "    更新所有 key:    .\setup.ps1 --keys" -ForegroundColor Cyan
+Write-Host "    只换 Mify key:   .\setup.ps1 --key mify" -ForegroundColor Cyan
+Write-Host "    只换百炼 key:    .\setup.ps1 --key bailian" -ForegroundColor Cyan
+Write-Host "    只更新二进制:    .\setup.ps1 --binary" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 Write-Host ""
