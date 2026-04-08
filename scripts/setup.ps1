@@ -19,7 +19,9 @@
 param(
   [switch]$keys,
   [string]$key    = "",
-  [switch]$binary
+  [switch]$binary,
+  [switch]$h,
+  [switch]$help
 )
 $ErrorActionPreference = "Stop"
 
@@ -130,6 +132,26 @@ function Generate-Config {
 "@
   $env:GEN_MIFY=$null; $env:GEN_BAILIAN=$null; $env:GEN_TPL=$null; $env:GEN_OUT=$null
   ok "opencode.jsonc 已生成"
+}
+
+# ── 帮助信息 ──────────────────────────────────────────────────
+if ($h -or $help) {
+  Write-Host "用法：" -ForegroundColor White
+  Write-Host "  首次安装 / 完整更新" -ForegroundColor Cyan
+  Write-Host "    irm https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.ps1 | iex"
+  Write-Host ""
+  Write-Host "  只更新所有 API Key" -ForegroundColor Cyan
+  Write-Host "    .\setup.ps1 --keys"
+  Write-Host ""
+  Write-Host "  只更新某个 provider 的 key" -ForegroundColor Cyan
+  Write-Host "    .\setup.ps1 --key mify"
+  Write-Host "    .\setup.ps1 --key bailian"
+  Write-Host ""
+  Write-Host "  只更新二进制（不动 key 和配置）" -ForegroundColor Cyan
+  Write-Host "    .\setup.ps1 --binary"
+  Write-Host ""
+  Write-Host "  可用 provider：mify（必填）、bailian（可选）" -ForegroundColor Gray
+  exit 0
 }
 
 # ── 模式判断 ──────────────────────────────────────────────────

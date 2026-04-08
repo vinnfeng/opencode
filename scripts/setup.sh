@@ -40,12 +40,32 @@ info() { echo -e "${BLUE}➜   $*${RESET}"; }
 MODE="full"       # full | keys | key | binary
 TARGET_KEY=""     # 指定单个 key 时的 provider 名（mify / bailian）
 
+show_help() {
+  echo -e "${BOLD}用法：${RESET}"
+  echo -e "  ${BLUE}首次安装 / 完整更新${RESET}"
+  echo -e "    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh)"
+  echo ""
+  echo -e "  ${BLUE}只更新所有 API Key${RESET}"
+  echo -e "    bash <(curl -fsSL ...setup.sh) --keys"
+  echo ""
+  echo -e "  ${BLUE}只更新某个 provider 的 key${RESET}"
+  echo -e "    bash <(curl -fsSL ...setup.sh) --key mify"
+  echo -e "    bash <(curl -fsSL ...setup.sh) --key bailian"
+  echo ""
+  echo -e "  ${BLUE}只更新二进制（不动 key 和配置）${RESET}"
+  echo -e "    bash <(curl -fsSL ...setup.sh) --binary"
+  echo ""
+  echo -e "  ${BLUE}可用 provider：${RESET}mify（必填）、bailian（可选）"
+  exit 0
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --help|-h)   show_help ;;
     --keys|-k)   MODE="keys" ;;
     --key)       MODE="key"; TARGET_KEY="${2:-}"; shift ;;
     --binary|-b) MODE="binary" ;;
-    *) echo "未知参数: $1"; exit 1 ;;
+    *) echo -e "${RED}❌  未知参数: $1${RESET}"; echo "运行 --help 查看用法"; exit 1 ;;
   esac
   shift
 done
