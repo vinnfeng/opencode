@@ -124,7 +124,7 @@ Write-Host "  Key 仅保存在本机 $KEYS_FILE" -ForegroundColor Yellow
 Write-Host "  不进 git，安全可靠" -ForegroundColor Gray
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 
-Prompt-Key "MIFY_API_KEY" "Mify API Key（格式：sk-...）"
+Prompt-Key "MIFY_API_KEY" "Mify API Key（获取地址：https://llm.mioffice.cn/apikey）"
 
 # ── 5. 生成 opencode.jsonc ───────────────────────────────────
 info "生成 opencode.jsonc..."

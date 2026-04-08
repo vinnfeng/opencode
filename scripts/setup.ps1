@@ -125,7 +125,7 @@ Write-Host "  Key 仅保存在本机 $KEYS_FILE" -ForegroundColor Yellow
 Write-Host "  不进 git，安全可靠" -ForegroundColor Gray
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 
-Prompt-Key "MIFY_API_KEY"    "Mify API Key（全平台 Anthropic/OpenAI/Google 等）"
+Prompt-Key "MIFY_API_KEY"    "Mify API Key（获取地址：https://llm.mioffice.cn/apikey）"
 Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（阿里云 Qwen）"
 
 # ── 4. 生成 opencode.jsonc ───────────────────────────────────
@@ -154,14 +154,29 @@ $DOWNLOAD_URL = "$RELEASE_BASE/$BINARY_NAME"
 New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
 $INSTALL_PATH = Join-Path $INSTALL_DIR "opencode.exe"
 
-info "下载 $BINARY_NAME ($RELEASE_TAG)..."
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-try {
-  Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $INSTALL_PATH -UseBasicParsing
-} catch {
-  err "下载失败: $DOWNLOAD_URL`n$_"
+$SKIP_BINARY = $false
+if (Test-Path $INSTALL_PATH) {
+  try {
+    $currentVer = (& $INSTALL_PATH --version 2>$null).Trim()
+    if ($currentVer -eq $RELEASE_TAG) {
+      ok "二进制已是最新版 ($RELEASE_TAG)，跳过下载"
+      $SKIP_BINARY = $true
+    } else {
+      info "当前版本: $currentVer，将更新至 $RELEASE_TAG"
+    }
+  } catch { }
 }
-ok "二进制已安装: $INSTALL_PATH"
+
+if (-not $SKIP_BINARY) {
+  info "下载 $BINARY_NAME ($RELEASE_TAG)..."
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  try {
+    Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $INSTALL_PATH -UseBasicParsing
+  } catch {
+    err "下载失败: $DOWNLOAD_URL`n$_"
+  }
+  ok "二进制已安装: $INSTALL_PATH ($RELEASE_TAG)"
+}
 
 # 加入 PATH（当前会话 + 用户永久）
 $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")

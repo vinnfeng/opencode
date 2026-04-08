@@ -124,7 +124,7 @@ echo -e "${BOLD}  API Key 配置                                  ${RESET}"
 echo -e "  Key 仅保存在本机 ${YELLOW}$KEYS_FILE${RESET}，不进 git"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 
-prompt_key "MIFY_API_KEY" "Mify API Key（格式：sk-...）"
+prompt_key "MIFY_API_KEY" "Mify API Key（获取地址：https://llm.mioffice.cn/apikey）"
 
 # ── 5. 生成 opencode.jsonc ───────────────────────────────────
 info "生成 opencode.jsonc..."

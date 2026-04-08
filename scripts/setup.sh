@@ -133,7 +133,7 @@ echo -e "${BOLD}  API Key 配置                                  ${RESET}"
 echo -e "  Key 仅保存在本机 ${YELLOW}$KEYS_FILE${RESET}，不进 git"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 
-prompt_key "MIFY_API_KEY"    "Mify API Key（全平台 Anthropic/OpenAI/Google 等）"
+prompt_key "MIFY_API_KEY"    "Mify API Key（获取地址：https://llm.mioffice.cn/apikey）"
 prompt_key "BAILIAN_API_KEY" "百炼 API Key（阿里云 Qwen）"
 
 # ── 5. 生成 opencode.jsonc ───────────────────────────────────
@@ -167,23 +167,32 @@ DOWNLOAD_URL="$RELEASE_BASE/$BINARY_NAME"
 
 if command -v opencode &>/dev/null; then
   INSTALL_PATH="$(command -v opencode)"
-  info "找到已安装的 opencode: $INSTALL_PATH"
+  CURRENT_VER="$(opencode --version 2>/dev/null | tr -d '[:space:]' || true)"
+  if [ "$CURRENT_VER" = "$RELEASE_TAG" ]; then
+    ok "二进制已是最新版 ($RELEASE_TAG)，跳过下载"
+    SKIP_BINARY=1
+  else
+    info "当前版本: ${CURRENT_VER:-未知}，将更新至 $RELEASE_TAG"
+    SKIP_BINARY=0
+  fi
 else
   INSTALL_PATH="/usr/local/bin/opencode"
   info "将安装到: $INSTALL_PATH"
+  SKIP_BINARY=0
 fi
 
-info "下载 $BINARY_NAME ($RELEASE_TAG)..."
-TMP_BIN="$(mktemp)"
-curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" || err "下载失败: $DOWNLOAD_URL"
-chmod +x "$TMP_BIN"
-
-if [ -w "$(dirname "$INSTALL_PATH")" ]; then
-  mv "$TMP_BIN" "$INSTALL_PATH"
-else
-  sudo mv "$TMP_BIN" "$INSTALL_PATH"
+if [ "$SKIP_BINARY" -eq 0 ]; then
+  info "下载 $BINARY_NAME ($RELEASE_TAG)..."
+  TMP_BIN="$(mktemp)"
+  curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" || err "下载失败: $DOWNLOAD_URL"
+  chmod +x "$TMP_BIN"
+  if [ -w "$(dirname "$INSTALL_PATH")" ]; then
+    mv "$TMP_BIN" "$INSTALL_PATH"
+  else
+    sudo mv "$TMP_BIN" "$INSTALL_PATH"
+  fi
+  ok "二进制已安装: $INSTALL_PATH ($RELEASE_TAG)"
 fi
-ok "二进制已安装: $INSTALL_PATH ($(opencode --version 2>/dev/null || echo $RELEASE_TAG))"
 
 # ── 7. 完成 ───────────────────────────────────────────────────
 echo ""
