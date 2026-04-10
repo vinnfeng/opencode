@@ -126,19 +126,19 @@ echo -e "${BOLD}  API Key 配置                                  ${RESET}"
 echo -e "  Key 仅保存在本机 ${YELLOW}$KEYS_FILE${RESET}，不进 git"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 
-prompt_key "MIFY_API_KEY" "Mify API Key（必填）" "获取地址：https://llm.mioffice.cn/apikey"
+prompt_key "PROVIDER_API_KEY" "Mify API Key（必填）" "向管理员获取 API Key"
 
 # ── 5. 生成 opencode.jsonc ───────────────────────────────────
 info "生成 opencode.jsonc..."
 [ -f "$TEMPLATE_FILE" ] || err "模板文件不存在: $TEMPLATE_FILE"
 
-MIFY_KEY="$(read_key MIFY_API_KEY)"
+PROVIDER_KEY="$(read_key PROVIDER_API_KEY)"
 
-GEN_MIFY="$MIFY_KEY" GEN_TPL="$TEMPLATE_FILE" GEN_OUT="$CONFIG_FILE" \
+GEN_PROVIDER="$PROVIDER_KEY" GEN_TPL="$TEMPLATE_FILE" GEN_OUT="$CONFIG_FILE" \
 node -e "
   const fs=require('fs'), e=process.env;
   let c=fs.readFileSync(e.GEN_TPL,'utf8');
-  c=c.replaceAll('MIFY_API_KEY', e.GEN_MIFY);
+  c=c.replaceAll('PROVIDER_API_KEY', e.GEN_PROVIDER);
   fs.writeFileSync(e.GEN_OUT, c);
 "
 ok "opencode.jsonc 已生成"
@@ -157,7 +157,7 @@ echo -e "    • orchestrator agent（主编排，自动分工）"
 echo -e "    • Sisyphus / Prometheus（oh-my-opencode 插件）"
 echo -e "    • Mify 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）"
 echo -e "    • 自动 compaction + context pruning"
-COMMUNITY_URL="https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/community-setup.sh"
+COMMUNITY_URL="https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/community-setup.sh"
 echo -e "  更新时重新运行，Key 自动从上次记录填入："
 echo -e "    ${BLUE}bash <(curl -fsSL $COMMUNITY_URL)${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"

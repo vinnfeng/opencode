@@ -125,16 +125,16 @@ Write-Host "  Key 仅保存在本机 $KEYS_FILE" -ForegroundColor Yellow
 Write-Host "  不进 git，安全可靠" -ForegroundColor Gray
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 
-Prompt-Key "MIFY_API_KEY" "Mify API Key（必填）" "获取地址：https://llm.mioffice.cn/apikey"
+Prompt-Key "PROVIDER_API_KEY" "Mify API Key（必填）" "向管理员获取 API Key"
 
 # ── 5. 生成 opencode.jsonc ───────────────────────────────────
 info "生成 opencode.jsonc..."
 if (-not (Test-Path $TEMPLATE_FILE)) { err "模板文件不存在: $TEMPLATE_FILE" }
 
-$MIFY_KEY = Read-Key "MIFY_API_KEY"
+$PROVIDER_KEY = Read-Key "PROVIDER_API_KEY"
 
 $content = Get-Content $TEMPLATE_FILE -Raw -Encoding UTF8
-$content = $content.Replace("MIFY_API_KEY", $MIFY_KEY)
+$content = $content.Replace("PROVIDER_API_KEY", $PROVIDER_KEY)
 Set-Content $CONFIG_FILE $content -Encoding UTF8
 ok "opencode.jsonc 已生成"
 
@@ -152,7 +152,7 @@ Write-Host "    • orchestrator agent（主编排，自动分工）" -Foregroun
 Write-Host "    • Sisyphus / Prometheus（oh-my-opencode 插件）" -ForegroundColor White
 Write-Host "    • Mify 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）" -ForegroundColor White
 Write-Host "    • 自动 compaction + context pruning" -ForegroundColor White
-$COMMUNITY_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/community-setup.ps1"
+$COMMUNITY_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/community-setup.ps1"
 Write-Host "  更新时重新运行，Key 自动从上次记录填入：" -ForegroundColor Gray
 Write-Host "    irm $COMMUNITY_URL | iex" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White

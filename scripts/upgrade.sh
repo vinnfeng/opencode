@@ -7,7 +7,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL="$HOME/.nvm/versions/node/$(node --version 2>/dev/null)/lib/node_modules/opencode-ai/bin"
-BRANCH="fengzhen/performance-tuning"
+BRANCH="release/kaiqu"
 UPSTREAM_REMOTE="upstream"
 UPSTREAM_BRANCH="dev"
 DRY_RUN=false

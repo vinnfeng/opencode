@@ -3,7 +3,7 @@
 #  开渠 (OpenCode) 个人版一键安装/更新 — macOS & Linux
 #
 #  首次安装 / 完整更新：
-#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh)
+#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh)
 #
 #  带参数运行（同样用 curl 方式）：
 #    bash <(curl -fsSL ...setup.sh) --keys       # 只更新所有 key
@@ -13,7 +13,7 @@
 #    bash <(curl -fsSL ...setup.sh) --help       # 查看帮助
 #
 #  也可保存到本地后使用：
-#    curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh
+#    curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh
 #    ~/opencode-setup.sh --keys
 # ═══════════════════════════════════════════════════════════
 set -euo pipefail
@@ -43,7 +43,7 @@ MODE="full"       # full | keys | key | binary | rollback
 TARGET_KEY=""     # 指定单个 key 时的 provider 名（mify / bailian）
 
 show_help() {
-  local U="https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh"
+  local U="https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh"
   echo -e "${BOLD}用法：${RESET}"
   echo -e "  ${BLUE}首次安装 / 完整更新${RESET}"
   echo -e "    bash <(curl -fsSL $U)"
@@ -150,11 +150,11 @@ generate_config() {
   [ -f "$TEMPLATE_FILE" ] || err "模板文件不存在: $TEMPLATE_FILE，请先完整安装一次"
   [ -f "$CONFIG_FILE" ] && cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
 
-  local mify_key bailian_key plugin_val
-  mify_key="$(read_key MIFY_API_KEY)"
+  local provider_key bailian_key plugin_val
+  provider_key="$(read_key PROVIDER_API_KEY)"
   bailian_key="$(read_key BAILIAN_API_KEY)"
 
-  [ -z "$mify_key" ] && err "MIFY_API_KEY 未设置，请运行：bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh) --key mify"
+  [ -z "$provider_key" ] && err "PROVIDER_API_KEY 未设置，请运行：bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh) --key mify"
 
   local omo_path="$CACHE_DIR/node_modules/oh-my-opencode"
   if [ -d "$omo_path" ]; then
@@ -164,12 +164,12 @@ generate_config() {
     warn "oh-my-opencode 本地缓存未找到，使用在线版（需要网络）"
   fi
 
-  GEN_MIFY="$mify_key" GEN_BAILIAN="$bailian_key" GEN_PLUGIN="$plugin_val" \
+  GEN_PROVIDER="$provider_key" GEN_BAILIAN="$bailian_key" GEN_PLUGIN="$plugin_val" \
   GEN_TPL="$TEMPLATE_FILE" GEN_OUT="$CONFIG_FILE" \
   node -e "
     const fs=require('fs'), e=process.env;
     let c=fs.readFileSync(e.GEN_TPL,'utf8');
-    c=c.replaceAll('MIFY_API_KEY', e.GEN_MIFY);
+    c=c.replaceAll('PROVIDER_API_KEY', e.GEN_PROVIDER);
     c=c.replaceAll('PLUGIN_PATH', e.GEN_PLUGIN);
     // 用 JSON 解析确保 bailian 移除后结构合法
     const obj=JSON.parse(c);
@@ -200,7 +200,7 @@ done
 if [ "$MODE" = "keys" ]; then
   echo -e "${BOLD}  模式：更新所有 API Key${RESET}"
   echo ""
-  prompt_key "MIFY_API_KEY"    "Mify API Key（必填）" 1 "获取地址：https://llm.mioffice.cn/apikey"
+  prompt_key "PROVIDER_API_KEY"    "Mify API Key（必填）" 1 "向管理员获取 API Key"
   prompt_key "BAILIAN_API_KEY" "百炼 API Key（可选）" 0 "阿里云百炼平台 Qwen 系列模型"
   generate_config
   ok "Key 更新完成，配置已重新生成"
@@ -213,7 +213,7 @@ if [ "$MODE" = "key" ]; then
     mify|MIFY)
       echo -e "${BOLD}  模式：更新 Mify API Key${RESET}"
       echo ""
-      prompt_key "MIFY_API_KEY" "Mify API Key（必填）" 1 "获取地址：https://llm.mioffice.cn/apikey"
+      prompt_key "PROVIDER_API_KEY" "Mify API Key（必填）" 1 "向管理员获取 API Key"
       ;;
     bailian|BAILIAN)
       echo -e "${BOLD}  模式：更新百炼 API Key${RESET}"
@@ -297,7 +297,7 @@ if [ "$MODE" = "full" ]; then
   echo -e "  Key 仅存于本机 ${YELLOW}$KEYS_FILE${RESET}，不进 git"
   echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 
-  prompt_key "MIFY_API_KEY"    "Mify API Key（必填 — 全平台模型入口）" 1 "获取地址：https://llm.mioffice.cn/apikey"
+  prompt_key "PROVIDER_API_KEY"    "Mify API Key（必填 — 全平台模型入口）" 1 "向管理员获取 API Key"
   prompt_key "BAILIAN_API_KEY" "百炼 API Key（可选 — 阿里云 Qwen）"   0
 
   # 5. 生成配置
@@ -354,7 +354,7 @@ echo -e "  配置:     ${BOLD}$CONFIG_DIR${RESET}"
 echo -e "  Key 文件: ${BOLD}$KEYS_FILE${RESET} (仅本机可见)"
 echo -e "  运行:     ${BOLD}opencode${RESET}"
 echo ""
-SETUP_URL="https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.sh"
+SETUP_URL="https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh"
 echo -e "  后续常用命令（直接粘贴运行）："
 echo -e "    更新所有 key:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --keys${RESET}"
 echo -e "    只换 Mify key:   ${BLUE}bash <(curl -fsSL $SETUP_URL) --key mify${RESET}"

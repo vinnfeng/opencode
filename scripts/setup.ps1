@@ -3,7 +3,7 @@
 #
 #  用法：
 #    # 首次安装 / 完整更新（管理员 PowerShell 推荐）
-#    irm https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.ps1 | iex
+#    irm https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.ps1 | iex
 #
 #    # 只更新所有 API Key
 #    .\setup.ps1 --keys
@@ -109,16 +109,16 @@ function Generate-Config {
   if (-not (Test-Path $TEMPLATE_FILE)) { err "模板文件不存在，请先完整安装一次" }
   if (Test-Path $CONFIG_FILE) { Copy-Item $CONFIG_FILE "$CONFIG_FILE.bak" -Force }
 
-  $mifyKey    = Read-Key "MIFY_API_KEY"
+  $mifyKey    = Read-Key "PROVIDER_API_KEY"
   $bailianKey = Read-Key "BAILIAN_API_KEY"
 
   if ([string]::IsNullOrEmpty($mifyKey)) {
-    err "MIFY_API_KEY 未设置，请先运行：.\setup.ps1 --key mify"
+    err "PROVIDER_API_KEY 未设置，请先运行：.\setup.ps1 --key mify"
   }
 
   # 用 node 做 JSON 解析，确保 bailian 移除后结构合法
   # 写临时 JS 文件避免 PS5.1 here-string 解析 bug
-  $env:GEN_MIFY    = $mifyKey
+  $env:GEN_PROVIDER    = $mifyKey
   $env:GEN_BAILIAN = $bailianKey
   $env:GEN_TPL     = $TEMPLATE_FILE
   $env:GEN_OUT     = $CONFIG_FILE
@@ -126,7 +126,7 @@ function Generate-Config {
   @(
     "var fs=require('fs'),e=process.env;"
     "var c=fs.readFileSync(e.GEN_TPL,'utf8');"
-    "c=c.split('MIFY_API_KEY').join(e.GEN_MIFY);"
+    "c=c.split('PROVIDER_API_KEY').join(e.GEN_PROVIDER);"
     "c=c.split('PLUGIN_PATH').join('oh-my-opencode@latest');"
     "var obj=JSON.parse(c);"
     "if(e.GEN_BAILIAN){obj.provider.bailian.options.apiKey=e.GEN_BAILIAN;}else{delete obj.provider.bailian;}"
@@ -134,7 +134,7 @@ function Generate-Config {
   ) -join "`n" | Set-Content $tmpJs -Encoding UTF8
   node $tmpJs
   Remove-Item $tmpJs -ErrorAction SilentlyContinue
-  $env:GEN_MIFY=$null; $env:GEN_BAILIAN=$null; $env:GEN_TPL=$null; $env:GEN_OUT=$null
+  $env:GEN_PROVIDER=$null; $env:GEN_BAILIAN=$null; $env:GEN_TPL=$null; $env:GEN_OUT=$null
   ok "opencode.jsonc 已生成"
 }
 
@@ -142,7 +142,7 @@ function Generate-Config {
 if ($h -or $help) {
   Write-Host "用法：" -ForegroundColor White
   Write-Host "  首次安装 / 完整更新" -ForegroundColor Cyan
-  Write-Host "    irm https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.ps1 | iex"
+  Write-Host "    irm https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.ps1 | iex"
   Write-Host ""
   Write-Host "  只更新所有 API Key" -ForegroundColor Cyan
   Write-Host "    .\setup.ps1 --keys"
@@ -178,7 +178,7 @@ Write-Host ""
 # ── only-keys 模式 ────────────────────────────────────────────
 if ($MODE -eq "keys") {
   Write-Host "  模式：更新所有 API Key" -ForegroundColor White
-  Prompt-Key "MIFY_API_KEY"    "Mify API Key（必填）"  $true  "获取地址：https://llm.mioffice.cn/apikey"
+  Prompt-Key "PROVIDER_API_KEY"    "Mify API Key（必填）"  $true  "向管理员获取 API Key"
   Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选）"  $false "阿里云百炼平台 Qwen 系列模型"
   Generate-Config
   ok "Key 更新完成，配置已重新生成"
@@ -189,7 +189,7 @@ if ($MODE -eq "keys") {
 if ($MODE -eq "key") {
   Write-Host "  模式：更新 $key API Key" -ForegroundColor White
   switch ($key.ToLower()) {
-    "mify"    { Prompt-Key "MIFY_API_KEY"    "Mify API Key（必填）"  $true  "获取地址：https://llm.mioffice.cn/apikey" }
+    "mify"    { Prompt-Key "PROVIDER_API_KEY"    "Mify API Key（必填）"  $true  "向管理员获取 API Key" }
     "bailian" { Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选）"  $false "阿里云百炼平台 Qwen 系列模型" }
     default   { err "不支持的 provider: $key，可用值：mify / bailian" }
   }
@@ -257,7 +257,7 @@ if ($MODE -eq "full") {
   Write-Host "  Key 仅存于本机 $KEYS_FILE" -ForegroundColor Yellow
   Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 
-  Prompt-Key "MIFY_API_KEY"    "Mify API Key（必填 — 全平台模型入口）" $true  "获取地址：https://llm.mioffice.cn/apikey"
+  Prompt-Key "PROVIDER_API_KEY"    "Mify API Key（必填 — 全平台模型入口）" $true  "向管理员获取 API Key"
   Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选 — 阿里云 Qwen）"   $false
 
   Generate-Config
@@ -321,7 +321,7 @@ Write-Host "  配置:     $CONFIG_DIR" -ForegroundColor White
 Write-Host "  Key 文件: $KEYS_FILE (仅本机可见)" -ForegroundColor Yellow
 Write-Host "  运行:     opencode （重开 PowerShell 后生效）" -ForegroundColor White
 Write-Host ""
-$SETUP_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/fengzhen/performance-tuning/scripts/setup.ps1"
+$SETUP_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.ps1"
 Write-Host "  后续常用命令（直接粘贴运行）：" -ForegroundColor White
 Write-Host "    更新所有 key:    irm $SETUP_URL | iex  # 或 .\setup.ps1 --keys（本地）" -ForegroundColor Cyan
 Write-Host "    只换 Mify key:   & ([scriptblock]::Create((irm $SETUP_URL))) --key mify" -ForegroundColor Cyan
