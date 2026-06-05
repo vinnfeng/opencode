@@ -3,25 +3,27 @@ import { beforeEach, describe, expect } from "bun:test"
 import { Effect, Exit, Layer, Option } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 
-import { AccessToken, AccountID, OrgID, RefreshToken } from "../../src/account"
-import { Account } from "../../src/account"
+import { AccessToken, AccountID, OrgID, RefreshToken } from "../../src/account/schema"
+import { Account } from "../../src/account/account"
 import { AccountRepo } from "../../src/account/repo"
-import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
-import { Bus } from "../../src/bus"
-import { Config } from "../../src/config/config"
-import { Provider } from "../../src/provider/provider"
-import { Session } from "../../src/session"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { EventV2Bridge } from "../../src/event-v2-bridge"
+import { Config } from "@/config/config"
+import { Provider } from "@/provider/provider"
+import { Session } from "@/session/session"
 import type { SessionID } from "../../src/session/schema"
-import { ShareNext } from "../../src/share/share-next"
-import { SessionShareTable } from "../../src/share/share.sql"
-import { Database, eq } from "../../src/storage/db"
+import { ShareNext } from "@/share/share-next"
+import { SessionShareTable } from "@opencode-ai/core/share/sql"
+import { Database } from "@opencode-ai/core/database/database"
+import { eq } from "drizzle-orm"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
-import { testEffect } from "../lib/effect"
+import { pollWithTimeout, testEffect } from "../lib/effect"
 
 const env = Layer.mergeAll(
   Session.defaultLayer,
-  AccountRepo.layer,
+  AccountRepo.defaultLayer,
+  Database.defaultLayer,
   NodeFileSystem.layer,
   CrossSpawnSpawner.defaultLayer,
 )
@@ -41,9 +43,10 @@ const none = HttpClient.make(() => Effect.die("unexpected http call"))
 function live(client: HttpClient.HttpClient) {
   const http = Layer.succeed(HttpClient.HttpClient, client)
   return ShareNext.layer.pipe(
-    Layer.provide(Bus.layer),
-    Layer.provide(Account.layer.pipe(Layer.provide(AccountRepo.layer), Layer.provide(http))),
+    Layer.provide(EventV2Bridge.defaultLayer),
+    Layer.provide(Account.layer.pipe(Layer.provide(AccountRepo.defaultLayer), Layer.provide(http))),
     Layer.provide(Config.defaultLayer),
+    Layer.provide(Database.defaultLayer),
     Layer.provide(http),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Session.defaultLayer),
@@ -53,15 +56,16 @@ function live(client: HttpClient.HttpClient) {
 function wired(client: HttpClient.HttpClient) {
   const http = Layer.succeed(HttpClient.HttpClient, client)
   return Layer.mergeAll(
-    Bus.layer,
+    EventV2Bridge.defaultLayer,
     ShareNext.layer,
-    Session.layer,
-    AccountRepo.layer,
+    Session.defaultLayer,
+    AccountRepo.defaultLayer,
+    Database.defaultLayer,
     NodeFileSystem.layer,
     CrossSpawnSpawner.defaultLayer,
   ).pipe(
-    Layer.provide(Bus.layer),
-    Layer.provide(Account.layer.pipe(Layer.provide(AccountRepo.layer), Layer.provide(http))),
+    Layer.provide(EventV2Bridge.defaultLayer),
+    Layer.provide(Account.layer.pipe(Layer.provide(AccountRepo.defaultLayer), Layer.provide(http))),
     Layer.provide(Config.defaultLayer),
     Layer.provide(http),
     Layer.provide(Provider.defaultLayer),
@@ -69,10 +73,18 @@ function wired(client: HttpClient.HttpClient) {
 }
 
 const share = (id: SessionID) =>
-  Database.use((db) => db.select().from(SessionShareTable).where(eq(SessionShareTable.session_id, id)).get())
+  Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    return yield* db
+      .select()
+      .from(SessionShareTable)
+      .where(eq(SessionShareTable.session_id, id))
+      .get()
+      .pipe(Effect.orDie)
+  })
 
 const seed = (url: string, org?: string) =>
-  AccountRepo.use((repo) =>
+  AccountRepo.Service.use((repo) =>
     repo.persistAccount({
       id: AccountID.make("account-1"),
       email: "user@example.com",
@@ -127,7 +139,7 @@ describe("ShareNext", () => {
       Effect.gen(function* () {
         yield* seed("https://control.example.com", "org-1")
 
-        const req = yield* ShareNext.Service.use((svc) => svc.request()).pipe(Effect.provide(live(none)))
+        const req = yield* ShareNext.use.request().pipe(Effect.provide(live(none)))
 
         expect(req.api.create).toBe("/api/shares")
         expect(req.api.sync("shr_123")).toBe("/api/shares/shr_123/sync")
@@ -146,7 +158,7 @@ describe("ShareNext", () => {
     provideTmpdirInstance(
       () =>
         Effect.gen(function* () {
-          const session = yield* Session.Service.use((svc) => svc.create({ title: "test" }))
+          const session = yield* Session.use.create({ title: "test" })
           const seen: HttpClientRequest.HttpClientRequest[] = []
           const client = HttpClient.make((req) => {
             seen.push(req)
@@ -162,15 +174,13 @@ describe("ShareNext", () => {
             return Effect.succeed(json(req, { ok: true }))
           })
 
-          const result = yield* ShareNext.Service.use((svc) => svc.create(session.id)).pipe(
-            Effect.provide(live(client)),
-          )
+          const result = yield* ShareNext.use.create(session.id).pipe(Effect.provide(live(client)))
 
           expect(result.id).toBe("shr_abc")
           expect(result.url).toBe("https://legacy-share.example.com/share/abc")
           expect(result.secret).toBe("sec_123")
 
-          const row = share(session.id)
+          const row = yield* share(session.id)
           expect(row?.id).toBe("shr_abc")
           expect(row?.url).toBe("https://legacy-share.example.com/share/abc")
           expect(row?.secret).toBe("sec_123")
@@ -187,7 +197,7 @@ describe("ShareNext", () => {
     provideTmpdirInstance(
       () =>
         Effect.gen(function* () {
-          const session = yield* Session.Service.use((svc) => svc.create({ title: "test" }))
+          const session = yield* Session.use.create({ title: "test" })
           const seen: HttpClientRequest.HttpClientRequest[] = []
           const client = HttpClient.make((req) => {
             seen.push(req)
@@ -204,11 +214,11 @@ describe("ShareNext", () => {
           })
 
           yield* Effect.gen(function* () {
-            yield* ShareNext.Service.use((svc) => svc.create(session.id))
-            yield* ShareNext.Service.use((svc) => svc.remove(session.id))
+            yield* ShareNext.use.create(session.id)
+            yield* ShareNext.use.remove(session.id)
           }).pipe(Effect.provide(live(client)))
 
-          expect(share(session.id)).toBeUndefined()
+          expect(yield* share(session.id)).toBeUndefined()
           expect(seen.map((req) => [req.method, req.url])).toEqual([
             ["POST", "https://legacy-share.example.com/api/share"],
             ["DELETE", "https://legacy-share.example.com/api/share/shr_abc"],
@@ -221,7 +231,7 @@ describe("ShareNext", () => {
   it.live("create fails on a non-ok response and does not persist a share", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
-        const session = yield* Session.Service.use((svc) => svc.create({ title: "test" }))
+        const session = yield* Session.use.create({ title: "test" })
         const client = HttpClient.make((req) => Effect.succeed(json(req, { error: "bad" }, 500)))
 
         const exit = yield* ShareNext.Service.use((svc) => Effect.exit(svc.create(session.id))).pipe(
@@ -229,7 +239,7 @@ describe("ShareNext", () => {
         )
 
         expect(Exit.isFailure(exit)).toBe(true)
-        expect(share(session.id)).toBeUndefined()
+        expect(yield* share(session.id)).toBeUndefined()
       }),
     ),
   )
@@ -246,54 +256,56 @@ describe("ShareNext", () => {
         })
 
         return Effect.gen(function* () {
-          const bus = yield* Bus.Service
+          const events = yield* EventV2Bridge.Service
           const share = yield* ShareNext.Service
           const session = yield* Session.Service
 
           const info = yield* session.create({ title: "first" })
           yield* share.init()
           yield* Effect.sleep(50)
-          yield* Effect.sync(() =>
-            Database.use((db) =>
-              db
-                .insert(SessionShareTable)
-                .values({
-                  session_id: info.id,
-                  id: "shr_abc",
-                  url: "https://legacy-share.example.com/share/abc",
-                  secret: "sec_123",
-                })
-                .run(),
-            ),
-          )
+          const { db } = yield* Database.Service
+          yield* db
+            .insert(SessionShareTable)
+            .values({
+              session_id: info.id,
+              id: "shr_abc",
+              url: "https://legacy-share.example.com/share/abc",
+              secret: "sec_123",
+            })
+            .run()
+            .pipe(Effect.orDie)
 
-          yield* bus.publish(Session.Event.Diff, {
+          yield* events.publish(Session.Event.Diff, {
             sessionID: info.id,
             diff: [
               {
                 file: "a.ts",
-                before: "one",
-                after: "two",
+                patch:
+                  "Index: a.ts\n===================================================================\n--- a.ts\t\n+++ a.ts\t\n@@ -1,1 +1,1 @@\n-one\n\\ No newline at end of file\n+two\n\\ No newline at end of file\n",
                 additions: 1,
                 deletions: 1,
                 status: "modified",
               },
             ],
           })
-          yield* bus.publish(Session.Event.Diff, {
+          yield* events.publish(Session.Event.Diff, {
             sessionID: info.id,
             diff: [
               {
                 file: "b.ts",
-                before: "old",
-                after: "new",
+                patch:
+                  "Index: b.ts\n===================================================================\n--- b.ts\t\n+++ b.ts\t\n@@ -1,1 +1,1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
                 additions: 2,
                 deletions: 0,
                 status: "modified",
               },
             ],
           })
-          yield* Effect.sleep(1_250)
+          yield* pollWithTimeout(
+            Effect.sync(() => (seen.length === 1 ? true : undefined)),
+            "timed out waiting for share sync",
+            "5 seconds",
+          )
 
           expect(seen).toHaveLength(1)
           expect(seen[0].url).toBe("https://legacy-share.example.com/api/share/shr_abc/sync")
@@ -304,8 +316,7 @@ describe("ShareNext", () => {
               type: string
               data: Array<{
                 file: string
-                before: string
-                after: string
+                patch: string
                 additions: number
                 deletions: number
                 status?: string
@@ -318,8 +329,8 @@ describe("ShareNext", () => {
           expect(body.data[0].data).toEqual([
             {
               file: "b.ts",
-              before: "old",
-              after: "new",
+              patch:
+                "Index: b.ts\n===================================================================\n--- b.ts\t\n+++ b.ts\t\n@@ -1,1 +1,1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n",
               additions: 2,
               deletions: 0,
               status: "modified",

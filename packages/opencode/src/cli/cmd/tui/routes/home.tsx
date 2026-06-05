@@ -1,5 +1,5 @@
 import { Prompt, type PromptRef } from "@tui/component/prompt"
-import { createEffect, createSignal } from "solid-js"
+import { createEffect, createMemo, createSignal, onMount } from "solid-js"
 import { Logo } from "../component/logo"
 import { useSync } from "../context/sync"
 import { Toast } from "../ui/toast"
@@ -7,9 +7,12 @@ import { useArgs } from "../context/args"
 import { useRouteData } from "@tui/context/route"
 import { usePromptRef } from "../context/prompt"
 import { useLocal } from "../context/local"
-import { TuiPluginRuntime } from "../plugin"
+import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
+import { useEditorContext } from "@tui/context/editor"
+import { useTerminalDimensions } from "@opentui/solid"
+import { useTuiConfig } from "../context/tui-config"
+import { HomeSessionDestinationProvider } from "./home/session-destination"
 
-// TODO: what is the best way to do this?
 let once = false
 const placeholder = {
   normal: ["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"],
@@ -23,14 +26,26 @@ export function Home() {
   const [ref, setRef] = createSignal<PromptRef | undefined>()
   const args = useArgs()
   const local = useLocal()
+  const editor = useEditorContext()
+  const dimensions = useTerminalDimensions()
+  const tuiConfig = useTuiConfig()
+  const promptMaxWidth = createMemo(() => {
+    const configured = tuiConfig.prompt?.max_width
+    if (configured === "auto") return Math.max(75, Math.floor(dimensions().width * 0.7))
+    return configured ?? 75
+  })
   let sent = false
+
+  onMount(() => {
+    editor.clearSelection()
+  })
 
   const bind = (r: PromptRef | undefined) => {
     setRef(r)
     promptRef.set(r)
     if (once || !r) return
-    if (route.initialPrompt) {
-      r.set(route.initialPrompt)
+    if (route.prompt) {
+      r.set(route.prompt)
       once = true
       return
     }
@@ -52,7 +67,7 @@ export function Home() {
   })
 
   return (
-    <>
+    <HomeSessionDestinationProvider>
       <box flexGrow={1} alignItems="center" paddingLeft={2} paddingRight={2}>
         <box flexGrow={1} minHeight={0} />
         <box height={4} minHeight={0} flexShrink={1} />
@@ -62,14 +77,9 @@ export function Home() {
           </TuiPluginRuntime.Slot>
         </box>
         <box height={1} minHeight={0} flexShrink={1} />
-        <box width="100%" maxWidth={75} zIndex={1000} paddingTop={1} flexShrink={0}>
-          <TuiPluginRuntime.Slot name="home_prompt" mode="replace" workspace_id={route.workspaceID} ref={bind}>
-            <Prompt
-              ref={bind}
-              workspaceID={route.workspaceID}
-              right={<TuiPluginRuntime.Slot name="home_prompt_right" workspace_id={route.workspaceID} />}
-              placeholders={placeholder}
-            />
+        <box width="100%" maxWidth={promptMaxWidth()} zIndex={1000} paddingTop={1} flexShrink={0}>
+          <TuiPluginRuntime.Slot name="home_prompt" mode="replace" ref={bind}>
+            <Prompt ref={bind} right={<TuiPluginRuntime.Slot name="home_prompt_right" />} placeholders={placeholder} />
           </TuiPluginRuntime.Slot>
         </box>
         <TuiPluginRuntime.Slot name="home_bottom" />
@@ -79,6 +89,6 @@ export function Home() {
       <box width="100%" flexShrink={0}>
         <TuiPluginRuntime.Slot name="home_footer" mode="single_winner" />
       </box>
-    </>
+    </HomeSessionDestinationProvider>
   )
 }
