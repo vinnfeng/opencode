@@ -1,3 +1,6 @@
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
+import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { PlanExitTool } from "./plan"
 import { Session } from "@/session/session"
 import { QuestionTool } from "./question"
@@ -30,10 +33,8 @@ import { Glob } from "@opencode-ai/core/util/glob"
 import path from "path"
 import { pathToFileURL } from "url"
 import { Effect, Layer, Context } from "effect"
-import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { Search } from "@opencode-ai/core/filesystem/search"
 import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectBridge } from "@/effect/bridge"
@@ -46,11 +47,13 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
 import { Permission } from "@/permission"
-import { Reference } from "@/reference/reference"
 import { BackgroundJob } from "@/background/job"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { MCP } from "@/mcp"
+import { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { McpCatalog } from "@/mcp/catalog"
 
 export function webSearchEnabled(providerID: ProviderV2.ID, flags = { exa: false, parallel: false }) {
   return providerID === ProviderV2.ID.opencode || flags.exa || flags.parallel
@@ -74,36 +77,13 @@ export interface Interface {
     providerID: ProviderV2.ID
     modelID: ModelV2.ID
     agent: Agent.Info
+    permission?: PermissionV1.Ruleset
   }) => Effect.Effect<Tool.Def[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ToolRegistry") {}
 
-export const layer: Layer.Layer<
-  Service,
-  never,
-  | Config.Service
-  | Plugin.Service
-  | Question.Service
-  | Todo.Service
-  | Agent.Service
-  | Skill.Service
-  | Session.Service
-  | BackgroundJob.Service
-  | Provider.Service
-  | Reference.Service
-  | LSP.Service
-  | Instruction.Service
-  | FSUtil.Service
-  | EventV2Bridge.Service
-  | HttpClient.HttpClient
-  | ChildProcessSpawner
-  | Search.Service
-  | Format.Service
-  | Truncate.Service
-  | RuntimeFlags.Service
-  | Database.Service
-> = Layer.effect(
+const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const config = yield* Config.Service
@@ -111,6 +91,7 @@ export const layer: Layer.Layer<
     const agents = yield* Agent.Service
     const truncate = yield* Truncate.Service
     const flags = yield* RuntimeFlags.Service
+    const mcp = yield* MCP.Service
 
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
@@ -129,6 +110,8 @@ export const layer: Layer.Layer<
     const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
     const agent = yield* Agent.Service
+    const codeMode = flags.experimentalCodeMode ? yield* Effect.promise(() => import("./code-mode")) : undefined
+    const codeModeTool = codeMode ? yield* codeMode.CodeModeTool : undefined
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -235,6 +218,7 @@ export const layer: Layer.Layer<
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
           plan: Tool.init(plan),
+          ...(codeModeTool ? { execute: Tool.init(codeModeTool) } : {}),
         })
 
         return {
@@ -254,6 +238,7 @@ export const layer: Layer.Layer<
             tool.search,
             tool.skill,
             tool.patch,
+            ...(tool.execute ? [tool.execute] : []),
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
           ],
@@ -287,6 +272,17 @@ export const layer: Layer.Layer<
       return ["Available agent types and the tools they have access to:", description].join("\n")
     })
 
+    const describeCodeMode = Effect.fn("ToolRegistry.describeCodeMode")(function* (input: {
+      agent: Agent.Info
+      permission?: PermissionV1.Ruleset
+    }) {
+      if (!codeMode) return
+      const ruleset = Permission.merge(input.agent.permission, input.permission ?? [])
+      const tools = Permission.visibleTools(yield* mcp.tools(), ruleset)
+      if (Object.keys(tools).length === 0) return
+      return codeMode.describeCatalog(tools, Object.keys(yield* mcp.clients()).map(McpCatalog.sanitize))
+    })
+
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
       const filtered = (yield* all()).filter((tool) => {
         if (tool.id === WebSearchTool.id) {
@@ -301,8 +297,13 @@ export const layer: Layer.Layer<
         return true
       })
 
+      const codeModeDescription = filtered.some((tool) => tool.id === "execute")
+        ? yield* describeCodeMode(input)
+        : undefined
+      const visible = filtered.filter((tool) => tool.id !== "execute" || codeModeDescription)
+
       return yield* Effect.forEach(
-        filtered,
+        visible,
         Effect.fnUntraced(function* (tool: Tool.Def) {
           const output = {
             description: tool.description,
@@ -316,7 +317,11 @@ export const layer: Layer.Layer<
               : undefined
           return {
             id: tool.id,
-            description: [output.description, tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined]
+            description: [
+              output.description,
+              tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined,
+              tool.id === "execute" ? codeModeDescription : undefined,
+            ]
               .filter(Boolean)
               .join("\n"),
             parameters: output.parameters,
@@ -336,32 +341,6 @@ export const layer: Layer.Layer<
 
     return Service.of({ ids, all, named, tools })
   }),
-)
-
-export const defaultLayer = Layer.suspend(() =>
-  layer
-    .pipe(
-      Layer.provide(Config.defaultLayer),
-      Layer.provide(Plugin.defaultLayer),
-      Layer.provide(Question.defaultLayer),
-      Layer.provide(Todo.defaultLayer),
-      Layer.provide(Skill.defaultLayer),
-      Layer.provide(Agent.defaultLayer),
-      Layer.provide(Session.defaultLayer),
-      Layer.provide(BackgroundJob.defaultLayer),
-      Layer.provide(Provider.defaultLayer),
-      Layer.provide(Reference.defaultLayer),
-      Layer.provide(LSP.defaultLayer),
-      Layer.provide(Instruction.defaultLayer),
-      Layer.provide(FSUtil.defaultLayer),
-      Layer.provide(EventV2Bridge.defaultLayer),
-      Layer.provide(FetchHttpClient.layer),
-      Layer.provide(Format.defaultLayer),
-      Layer.provide(CrossSpawnSpawner.defaultLayer),
-      Layer.provide(Search.defaultLayer),
-      Layer.provide(Truncate.defaultLayer),
-    )
-    .pipe(Layer.provide(Database.defaultLayer), Layer.provide(RuntimeFlags.defaultLayer)),
 )
 
 function isZodType(value: unknown): value is z.ZodType {
@@ -439,5 +418,33 @@ function normalizeZodJsonSchema(value: unknown): unknown {
 function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
+
+export const node = LayerNode.make({
+  service: Service,
+  layer,
+  deps: [
+    Config.node,
+    Plugin.node,
+    Question.node,
+    Todo.node,
+    Agent.node,
+    Skill.node,
+    Session.node,
+    BackgroundJob.node,
+    Provider.node,
+    LSP.node,
+    Instruction.node,
+    FSUtil.node,
+    EventV2Bridge.node,
+    httpClient,
+    CrossSpawnSpawner.node,
+    Format.node,
+    Truncate.node,
+    RuntimeFlags.node,
+    MCP.node,
+    Database.node,
+    Ripgrep.node,
+  ],
+})
 
 export * as ToolRegistry from "./registry"
