@@ -63,6 +63,16 @@ describe("tui thread", () => {
     }
   })
 
+  test("parses a TUI model variant", async () => {
+    const args = await yargs([])
+      .command({ ...TuiThreadCommand, handler: () => {} })
+      .exitProcess(false)
+      .parse(["--model", "xai/grok-4.5", "--variant", "high"])
+
+    expect(args.model).toBe("xai/grok-4.5")
+    expect(args.variant).toBe("high")
+  })
+
   test("preserves boolean negation for existing options", async () => {
     const args = await yargs([])
       .command({ ...TuiThreadCommand, handler: () => {} })

@@ -967,6 +967,7 @@ type MiniCommandInput = {
   session?: string
   fork?: boolean
   model?: string
+  variant?: string
   agent?: string
   prompt?: string
   replay?: boolean
@@ -995,7 +996,7 @@ export async function runMini(input: MiniCommandInput) {
     username: input.username,
     dir: input.directory,
     port: undefined,
-    variant: undefined,
+    variant: input.variant,
     thinking: undefined,
     mini: true,
     interactive: false,

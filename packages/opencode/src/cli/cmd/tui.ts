@@ -83,6 +83,10 @@ export const TuiThreadCommand = cmd({
         alias: ["m"],
         describe: "model to use in the format of provider/model",
       })
+      .option("variant", {
+        type: "string",
+        describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
+      })
       .option("continue", {
         alias: ["c"],
         describe: "continue the last session",
@@ -166,6 +170,7 @@ export const TuiThreadCommand = cmd({
         session: args.session,
         fork: args.fork,
         model: args.model,
+        variant: args.variant,
         agent: args.agent,
         prompt: args.prompt,
         replay: noReplay ? false : undefined,
@@ -289,6 +294,7 @@ export const TuiThreadCommand = cmd({
               sessionID: args.session,
               agent: args.agent,
               model: args.model,
+              variant: args.variant,
               prompt,
               fork: args.fork,
               auto: args.auto || args.yolo || args["dangerously-skip-permissions"],

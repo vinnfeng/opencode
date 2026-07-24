@@ -244,6 +244,15 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         )
       })
 
+      let appliedStartVariant = false
+      createEffect(() => {
+        if (appliedStartVariant || !modelStore.ready || !args.variant) return
+        const model = currentModel()
+        if (!model) return
+        appliedStartVariant = true
+        setModelStore("variant", `${model.providerID}/${model.modelID}`, args.variant)
+      })
+
       return {
         current: currentModel,
         get ready() {
