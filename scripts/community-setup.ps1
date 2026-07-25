@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════
 #  开渠 (OpenCode) 社区版安装/更新 — Windows (PowerShell)
-#  安装官方 opencode + Mify 配置 + 优化 agent 体系
+#  安装官方 opencode + Provider 配置 + 优化 agent 体系
 #  Key 本地存储，不进 git，支持更新时保留上次配置
 #
 #  用法：
@@ -125,7 +125,7 @@ Write-Host "  Key 仅保存在本机 $KEYS_FILE" -ForegroundColor Yellow
 Write-Host "  不进 git，安全可靠" -ForegroundColor Gray
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 
-Prompt-Key "PROVIDER_API_KEY" "Mify API Key（必填）" "向管理员获取 API Key"
+Prompt-Key "PROVIDER_API_KEY" "Provider API Key（必填）" "向管理员获取 API Key"
 
 # ── 5. 生成 opencode.jsonc ───────────────────────────────────
 info "生成 opencode.jsonc..."
@@ -150,7 +150,7 @@ Write-Host ""
 Write-Host "  包含功能：" -ForegroundColor White
 Write-Host "    • orchestrator agent（主编排，自动分工）" -ForegroundColor White
 Write-Host "    • Sisyphus / Prometheus（oh-my-opencode 插件）" -ForegroundColor White
-Write-Host "    • Mify 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）" -ForegroundColor White
+Write-Host "    • Provider 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）" -ForegroundColor White
 Write-Host "    • 自动 compaction + context pruning" -ForegroundColor White
 $COMMUNITY_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/community-setup.ps1"
 Write-Host "  更新时重新运行，Key 自动从上次记录填入：" -ForegroundColor Gray

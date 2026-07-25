@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════
 #  开渠 (OpenCode) 社区版安装/更新 — macOS & Linux
-#  安装官方 opencode + Mify 配置 + 优化 agent 体系
+#  安装官方 opencode + Provider 配置 + 优化 agent 体系
 #  Key 本地存储，不进 git，支持更新时保留上次配置
 #
 #  用法：
@@ -126,7 +126,7 @@ echo -e "${BOLD}  API Key 配置                                  ${RESET}"
 echo -e "  Key 仅保存在本机 ${YELLOW}$KEYS_FILE${RESET}，不进 git"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 
-prompt_key "PROVIDER_API_KEY" "Mify API Key（必填）" "向管理员获取 API Key"
+prompt_key "PROVIDER_API_KEY" "Provider API Key（必填）" "向管理员获取 API Key"
 
 # ── 5. 生成 opencode.jsonc ───────────────────────────────────
 info "生成 opencode.jsonc..."
@@ -155,7 +155,7 @@ echo ""
 echo -e "  包含功能："
 echo -e "    • orchestrator agent（主编排，自动分工）"
 echo -e "    • Sisyphus / Prometheus（oh-my-opencode 插件）"
-echo -e "    • Mify 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）"
+echo -e "    • Provider 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）"
 echo -e "    • 自动 compaction + context pruning"
 COMMUNITY_URL="https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/community-setup.sh"
 echo -e "  更新时重新运行，Key 自动从上次记录填入："

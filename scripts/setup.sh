@@ -7,7 +7,7 @@
 #
 #  带参数运行（同样用 curl 方式）：
 #    bash <(curl -fsSL ...setup.sh) --keys       # 只更新所有 key
-#    bash <(curl -fsSL ...setup.sh) --key mify   # 只换 Mify key
+#    bash <(curl -fsSL ...setup.sh) --key mify   # 只换 Provider key
 #    bash <(curl -fsSL ...setup.sh) --key bailian # 只换百炼 key
 #    bash <(curl -fsSL ...setup.sh) --binary     # 只更新二进制
 #    bash <(curl -fsSL ...setup.sh) --help       # 查看帮助
@@ -200,7 +200,7 @@ done
 if [ "$MODE" = "keys" ]; then
   echo -e "${BOLD}  模式：更新所有 API Key${RESET}"
   echo ""
-  prompt_key "PROVIDER_API_KEY"    "Mify API Key（必填）" 1 "向管理员获取 API Key"
+  prompt_key "PROVIDER_API_KEY"    "Provider API Key（必填）" 1 "向管理员获取 API Key"
   prompt_key "BAILIAN_API_KEY" "百炼 API Key（可选）" 0 "阿里云百炼平台 Qwen 系列模型"
   generate_config
   ok "Key 更新完成，配置已重新生成"
@@ -211,9 +211,9 @@ fi
 if [ "$MODE" = "key" ]; then
   case "$TARGET_KEY" in
     mify|MIFY)
-      echo -e "${BOLD}  模式：更新 Mify API Key${RESET}"
+      echo -e "${BOLD}  模式：更新 Provider API Key${RESET}"
       echo ""
-      prompt_key "PROVIDER_API_KEY" "Mify API Key（必填）" 1 "向管理员获取 API Key"
+      prompt_key "PROVIDER_API_KEY" "Provider API Key（必填）" 1 "向管理员获取 API Key"
       ;;
     bailian|BAILIAN)
       echo -e "${BOLD}  模式：更新百炼 API Key${RESET}"
@@ -297,7 +297,7 @@ if [ "$MODE" = "full" ]; then
   echo -e "  Key 仅存于本机 ${YELLOW}$KEYS_FILE${RESET}，不进 git"
   echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 
-  prompt_key "PROVIDER_API_KEY"    "Mify API Key（必填 — 全平台模型入口）" 1 "向管理员获取 API Key"
+  prompt_key "PROVIDER_API_KEY"    "Provider API Key（必填 — 全平台模型入口）" 1 "向管理员获取 API Key"
   prompt_key "BAILIAN_API_KEY" "百炼 API Key（可选 — 阿里云 Qwen）"   0
 
   # 5. 生成配置
@@ -357,7 +357,7 @@ echo ""
 SETUP_URL="https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh"
 echo -e "  后续常用命令（直接粘贴运行）："
 echo -e "    更新所有 key:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --keys${RESET}"
-echo -e "    只换 Mify key:   ${BLUE}bash <(curl -fsSL $SETUP_URL) --key mify${RESET}"
+echo -e "    只换 Provider key:   ${BLUE}bash <(curl -fsSL $SETUP_URL) --key mify${RESET}"
 echo -e "    只换百炼 key:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --key bailian${RESET}"
 echo -e "    只更新二进制:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --binary${RESET}"
 echo -e "    回退上一版本:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --rollback${RESET}"

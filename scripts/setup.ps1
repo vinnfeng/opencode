@@ -178,7 +178,7 @@ Write-Host ""
 # ── only-keys 模式 ────────────────────────────────────────────
 if ($MODE -eq "keys") {
   Write-Host "  模式：更新所有 API Key" -ForegroundColor White
-  Prompt-Key "PROVIDER_API_KEY"    "Mify API Key（必填）"  $true  "向管理员获取 API Key"
+  Prompt-Key "PROVIDER_API_KEY"    "Provider API Key（必填）"  $true  "向管理员获取 API Key"
   Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选）"  $false "阿里云百炼平台 Qwen 系列模型"
   Generate-Config
   ok "Key 更新完成，配置已重新生成"
@@ -189,7 +189,7 @@ if ($MODE -eq "keys") {
 if ($MODE -eq "key") {
   Write-Host "  模式：更新 $key API Key" -ForegroundColor White
   switch ($key.ToLower()) {
-    "mify"    { Prompt-Key "PROVIDER_API_KEY"    "Mify API Key（必填）"  $true  "向管理员获取 API Key" }
+    "mify"    { Prompt-Key "PROVIDER_API_KEY"    "Provider API Key（必填）"  $true  "向管理员获取 API Key" }
     "bailian" { Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选）"  $false "阿里云百炼平台 Qwen 系列模型" }
     default   { err "不支持的 provider: $key，可用值：mify / bailian" }
   }
@@ -257,7 +257,7 @@ if ($MODE -eq "full") {
   Write-Host "  Key 仅存于本机 $KEYS_FILE" -ForegroundColor Yellow
   Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 
-  Prompt-Key "PROVIDER_API_KEY"    "Mify API Key（必填 — 全平台模型入口）" $true  "向管理员获取 API Key"
+  Prompt-Key "PROVIDER_API_KEY"    "Provider API Key（必填 — 全平台模型入口）" $true  "向管理员获取 API Key"
   Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选 — 阿里云 Qwen）"   $false
 
   Generate-Config
@@ -324,7 +324,7 @@ Write-Host ""
 $SETUP_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.ps1"
 Write-Host "  后续常用命令（直接粘贴运行）：" -ForegroundColor White
 Write-Host "    更新所有 key:    irm $SETUP_URL | iex  # 或 .\setup.ps1 --keys（本地）" -ForegroundColor Cyan
-Write-Host "    只换 Mify key:   & ([scriptblock]::Create((irm $SETUP_URL))) --key mify" -ForegroundColor Cyan
+Write-Host "    只换 Provider key:   & ([scriptblock]::Create((irm $SETUP_URL))) --key mify" -ForegroundColor Cyan
 Write-Host "    只换百炼 key:    & ([scriptblock]::Create((irm $SETUP_URL))) --key bailian" -ForegroundColor Cyan
 Write-Host "    只更新二进制:    & ([scriptblock]::Create((irm $SETUP_URL))) --binary" -ForegroundColor Cyan
 Write-Host "    回退上一版本:    & ([scriptblock]::Create((irm $SETUP_URL))) --rollback" -ForegroundColor Cyan
