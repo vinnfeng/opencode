@@ -7,7 +7,8 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL="$HOME/.nvm/versions/node/$(node --version 2>/dev/null)/lib/node_modules/opencode-ai/bin"
-BRANCH="release/kaiqu"
+_current_branch="$(git -C "$REPO" branch --show-current 2>/dev/null || true)"
+BRANCH="${OPENCODE_BRANCH:-${_current_branch:-main}}"  # 可配置(OPENCODE_BRANCH), 默认当前分支(detached HEAD 空值回退 main), 去硬编码 release/kaiqu
 UPSTREAM_REMOTE="upstream"
 UPSTREAM_BRANCH="dev"
 DRY_RUN=false
@@ -109,7 +110,11 @@ fi
 
 cd "$BUILD_PKG"
 bun run build 2>&1 | tail -20
-BUILD_BINARY="$BUILD_PKG/dist/opencode-darwin-arm64/bin/opencode"
+# 平台动态检测（替代硬编码 darwin-arm64，适配 WSL/Linux/macOS）
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in x86_64|amd64) ARCH="x64" ;; aarch64|arm64) ARCH="arm64" ;; esac
+BUILD_BINARY="$BUILD_PKG/dist/opencode-${OS}-${ARCH}/bin/opencode"
 
 if [ ! -f "$BUILD_BINARY" ]; then
   echo "❌ 构建产物不存在: $BUILD_BINARY"

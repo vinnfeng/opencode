@@ -5,7 +5,11 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL="$HOME/.nvm/versions/node/$(node --version 2>/dev/null)/lib/node_modules/opencode-ai/bin"
-BUILD_BINARY="$REPO/packages/opencode/dist/opencode-darwin-arm64/bin/opencode"
+# 平台动态检测（替代硬编码 darwin-arm64，适配 WSL/Linux/macOS）
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in x86_64|amd64) ARCH="x64" ;; aarch64|arm64) ARCH="arm64" ;; esac
+BUILD_BINARY="$REPO/packages/opencode/dist/opencode-${OS}-${ARCH}/bin/opencode"
 DATE=$(date +%Y%m%d)
 
 if [ ! -f "$BUILD_BINARY" ]; then

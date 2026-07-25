@@ -4,7 +4,7 @@
     "description": "性能补丁参数已正确写入 compaction.ts",
     "tags": ["perf", "regression"],
     "prompt": "读取 packages/opencode/src/session/compaction.ts，告诉我 PRUNE_MINIMUM 和 PRUNE_PROTECT 的当前值是多少",
-    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "dir": "../..",
     "timeout": 60,
     "assertions": [
       { "type": "no_error" },
@@ -16,10 +16,11 @@
     "id": "perf_truncation_params",
     "description": "性能补丁参数已正确写入 truncate.ts",
     "tags": ["perf", "regression"],
-    "prompt": "读取 packages/opencode/src/util/truncate.ts，告诉我 MAX_LINES 和 MAX_BYTES 的当前值",
-    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "prompt": "读取 packages/opencode/src/tool/truncate.ts，告诉我 MAX_LINES 和 MAX_BYTES 的当前值",
+    "dir": "../..",
     "timeout": 60,
     "assertions": [
+      { "type": "file_exists", "path": "packages/opencode/src/tool/truncate.ts" },
       { "type": "no_error" },
       { "type": "output_contains", "pattern": "1000", "flags": "i" },
       { "type": "output_contains", "pattern": "25[,\\s]?\\*?\\s?1024|25600|25_600", "flags": "i" }
@@ -30,7 +31,7 @@
     "description": "COMPACTION_BUFFER 已设置为 30K",
     "tags": ["perf", "regression"],
     "prompt": "读取 packages/opencode/src/session/overflow.ts，告诉我 COMPACTION_BUFFER 的值",
-    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "dir": "../..",
     "timeout": 60,
     "assertions": [
       { "type": "no_error" },

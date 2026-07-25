@@ -4,7 +4,7 @@
     "description": "能读取并描述文件内容",
     "tags": ["smoke", "read"],
     "prompt": "读取 README.md 的第一行，告诉我它是什么项目",
-    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "dir": "../..",
     "timeout": 60,
     "assertions": [
       { "type": "no_error" },
@@ -17,7 +17,7 @@
     "description": "能列出目录结构",
     "tags": ["smoke", "read"],
     "prompt": "列出 scripts/ 目录下有哪些文件",
-    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "dir": "../..",
     "timeout": 60,
     "assertions": [
       { "type": "no_error" },
@@ -29,7 +29,7 @@
     "description": "能用 grep 在代码库中搜索",
     "tags": ["smoke", "search"],
     "prompt": "搜索代码中所有使用 PRUNE_MINIMUM 的地方，告诉我在哪个文件第几行",
-    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "dir": "../..",
     "timeout": 90,
     "assertions": [
       { "type": "no_error" },
@@ -85,7 +85,7 @@
     "description": "能分析代码并回答架构问题",
     "tags": ["smoke", "reasoning"],
     "prompt": "看一下 packages/opencode/src/cli/cmd/run.ts，简短说明这个文件的主要职责是什么（一句话）",
-    "dir": "/Users/fengzhen/openclaw-interaction/source-code/opencode",
+    "dir": "../..",
     "timeout": 90,
     "assertions": [
       { "type": "no_error" },
