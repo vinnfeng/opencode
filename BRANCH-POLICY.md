@@ -1,9 +1,8 @@
-# OpenCode Fork 分支管理规范
+# OpenCode Fork 分支管理规范（公司迁移基线）
 
-**维护人：曜构（Claude Code）**  
-**建立时间：2026-04-05**  
-**最后更新：2026-04-08**  
-**完整版本说明：[RELEASE.md](./RELEASE.md)**
+**维护人：承渊-运维（Claude Code）**
+**建立时间：2026-07-25**
+**基线：`ad052574`（上游干净同步点）**
 
 ---
 
@@ -11,9 +10,11 @@
 
 | 分支 | 用途 | 操作规则 |
 |------|------|---------|
+| `main` | 公司主线，跟踪上游 + 已验证的公司改动 | 只接受 PR merge，**不直接 push** |
+| `migration/company-opencode-validated-*` | 验证迁移线，从干净基线重写公司需要的改动 | 独立 commit + 测试 + PR review |
 | `upstream-sync` | 跟踪官方 `anomalyco/opencode` dev | 只用于拉取官方更新，**不在此开发** |
-| `fengzhen/performance-tuning` | 当前生产分支，含我们的优化补丁 | 在此开发、发版、部署 |
-| `fengzhen/cultivation` | 研究/实验分支 | 随时可用，不影响生产 |
+
+> 不再使用 `fengzhen/performance-tuning` 作为生产分支。该分支冻结为证据库（见 `证据-opencode-fengzhen-performance-tuning冻结-20260725.md`），不作运行基线，不追加修改。
 
 ---
 
@@ -21,82 +22,38 @@
 
 | Remote | URL | 用途 |
 |--------|-----|------|
-| `origin` | `https://github.com/vinnfeng/opencode.git` | 我们自己的 fork |
+| `origin` | `https://github.com/vinnfeng/opencode.git` | 公司自己的 fork（vinnfeng） |
 | `upstream` | `https://github.com/anomalyco/opencode.git` | 官方上游 |
 
 ---
 
-## 升级流程（脚本化）
+## 迁移流程
 
 ```bash
-# 一键升级：fetch + rebase + 构建（若开渠在运行，构建后等待手动安装）
-bash scripts/upgrade.sh
+# 1. 从干净基线建迁移分支
+git switch -c migration/company-opencode-validated-YYYYMMDD ad052574
 
-# 仅验证同步是否干净（不构建不安装）
-bash scripts/upgrade.sh --dry-run
+# 2. 逐项重写公司需要的改动（独立 commit + 测试，禁整批 cherry-pick 旧分支）
+#    每项 commit 可独立 revert
 
-# 开渠空闲后安装已构建的新版本
-bash scripts/install-binary.sh
+# 3. push 到 origin（只推 vinnfeng fork，不推官方）
+git push origin migration/company-opencode-validated-YYYYMMDD
 
-# push 更新
-git push origin fengzhen/performance-tuning --force-with-lease
+# 4. 建 PR -> main，待 review，不自动 merge
 ```
 
-**冲突处理**：遇到 rebase 冲突时脚本会列出文件并退出，手动 `git add + git rebase --continue`，再运行 `install-binary.sh`。
-
-**注意**：upgrade.sh 检测到 opencode 进程在运行时会跳过二进制安装，只构建。安装前确认开渠已退出。
-
----
-
-## 当前优化内容（performance-tuning）
-
-**提交**：`6908d6a63` — `perf: aggressive compaction and tighter tool output limits`
-
-| 文件 | 参数 | 原值 | 优化值 |
-|------|------|------|-------|
-| `compaction.ts` | PRUNE_MINIMUM | 20K | 10K |
-| `compaction.ts` | PRUNE_PROTECT | 40K | 20K |
-| `overflow.ts` | COMPACTION_BUFFER | 20K | 30K |
-| `truncate.ts` | MAX_LINES | 2000 | 1000 |
-| `truncate.ts` | MAX_BYTES | 50KB | 25KB |
-
-效果：compaction 提前 ~20% 触发，压缩力度翻倍，每次工具调用 token 消耗减半。
+**铁律**：
+- 不直接 push `main`
+- 不整批 cherry-pick `fengzhen/performance-tuning` 的 20 提交
+- 每项改动独立 commit + 测试 + 可 revert
+- 推送只推 `origin`（vinnfeng fork），禁推官方 `anomalyco`（贡献上游走 fork PR，非 push 例外）
+- WSL 访问 `/mnt/c` 大仓库用 Windows 原生 git（`powershell.exe` 调 `git.exe`），避免 9p FS 超时
 
 ---
 
-## 能力路线图
+## 旧优化补丁处理
 
-| 项 | 内容 | 状态 | 位置 |
-|----|------|------|------|
-| Perf patch | aggressive compaction + tighter truncation | ✅ 已实现 | `6908d6a63` |
-| P3 context-pruner | LLM 动态摘要旧对话（>60% 触发） | ✅ 已启用 | `oh-my-opencode.json` experimental |
-| P2 Best-of-N | 高风险任务多模型验证 | ✅ 已写入协议 | `agents/orchestrator.md` |
-| P4 评测框架 | 175+ 项目 OpenCode runner | ✅ 已实现 | `scripts/eval-runner.ts` + `eval-cases/` |
-
----
-
-## 评测框架（P4）使用方式
-
-```bash
-# 运行所有用例（并发 2）
-bun scripts/eval-runner.ts
-
-# 只跑 smoke 快速验证
-bun scripts/eval-runner.ts --filter smoke
-
-# 只跑性能补丁回归
-bun scripts/eval-runner.ts --filter perf
-
-# 指定单个用例
-bun scripts/eval-runner.ts --case smoke_read_file
-
-# dry-run（列出用例不执行）
-bun scripts/eval-runner.ts --dry-run
-```
-
-报告输出至 `.artifacts/eval/eval-<timestamp>.md`，同目录有 `.json` 原始数据。
-
-新增用例：在 `scripts/eval-cases/` 下添加 `.json` 文件，每个文件为单个 case 对象或 case 数组。
+`fengzhen/performance-tuning` 的 `6908d6a63`（aggressive compaction + tighter truncation）等 perf 补丁**不自动继承**。新基线需逐项评估是否仍有效、是否与上游冲突，按 D 类（重新设计）或 A 类（最小重实现）单独迁移，不默认保留。
 
 ---
 
@@ -104,6 +61,25 @@ bun scripts/eval-runner.ts --dry-run
 
 | 文件 | 内容 |
 |------|------|
-| `.opencode` | 当前生产版本（我们的优化构建）|
-| `.opencode.bak.20260403` | 上一个生产版本备份 |
-| `.opencode.official.bak` | 原始官方二进制 |
+| `.opencode` | 当前运行版本 |
+| `.opencode.bak.*` | 历史版本备份 |
+
+> 备份文件不进 git，仅本地保留。
+
+---
+
+## 评测框架
+
+`scripts/eval-runner.ts` + `scripts/eval-cases/` 提供能力验证：
+
+```bash
+bun scripts/eval-runner.ts --filter smoke
+```
+
+报告输出至 `.artifacts/eval/`。
+
+> 评测框架的路径配置已去硬编码（见对应 commit），使用相对路径或环境变量，不绑定特定机器。
+
+---
+
+*承渊-运维 · 2026-07-25 · S3 Wave D3 重编（基于公司迁移基线 ad052574，替代旧 fengzhen/performance-tuning 分支策略）*
