@@ -1,19 +1,24 @@
-# ═══════════════════════════════════════════════════════════
-#  开渠 (OpenCode) 社区版安装/更新 — Windows (PowerShell)
+﻿# ═══════════════════════════════════════════════════════════
+#  开渠 (OpenCode) 社区版安装/更新 - Windows (PowerShell)
 #  安装官方 opencode + Provider 配置 + 优化 agent 体系
 #  Key 本地存储，不进 git，支持更新时保留上次配置
 #
-#  用法：
-#    .\community-setup.ps1  (在 vinnfeng/opencode 克隆目录的 scripts\ 下运行)
+#  用法（raw URL 固定到 RELEASE_TAG，符合 RAW-URL-POLICY 条件 2/3）：
+#    irm https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.3/scripts/community-setup.ps1 | iex
 # ═══════════════════════════════════════════════════════════
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 
+$RELEASE_TAG   = "v1.3.17-kaiqu.3"
 $CONFIG_REPO   = "https://github.com/vinnfeng/opencode-config.git"
+# D4 条件 2/3: CONFIG checkout 固定 commit SHA（非浮动 community 分支）
+$CONFIG_REF    = "3b91bce58bb4d99b4b33c58d52a73e90721e1e75"
 $CONFIG_DIR    = Join-Path $env:APPDATA "opencode"
 $KEYS_FILE     = Join-Path $CONFIG_DIR ".keys"
 $TEMPLATE_FILE = Join-Path $CONFIG_DIR "opencode.template.jsonc"
 $CONFIG_FILE   = Join-Path $CONFIG_DIR "opencode.jsonc"
+# D4 条件 2/3: 脚本分发 URL 固定到 RELEASE_TAG（非浮动分支）
+$COMMUNITY_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/$RELEASE_TAG/scripts/community-setup.ps1"
 
 function ok   { param($m) Write-Host "✅  $m" -ForegroundColor Green }
 function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
@@ -77,7 +82,8 @@ function Prompt-Key { param($name, $label, $hint="")
 
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
-Write-Host "  开渠 OpenCode 社区版 — 安装/更新 (Windows)  " -ForegroundColor White
+Write-Host "  开渠 OpenCode 社区版 - 安装/更新 (Windows)  " -ForegroundColor White
+Write-Host "  版本: $RELEASE_TAG" -ForegroundColor White
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 Write-Host ""
 
@@ -87,34 +93,38 @@ foreach ($cmd in @("git", "node", "npm")) {
 }
 
 # ── 2. 安装官方 opencode ──────────────────────────────────────
+# D4 说明：社区版二进制走 npm 渠道（npm 自带包签名校验），不走 release 资产下载，
+# 故 D4 条件 4（SHA256）对社区版不适用；npm install 本身即校验来源与完整性。
 if (Get-Command opencode -ErrorAction SilentlyContinue) {
   ok "opencode 已安装"
 } else {
-  info "安装 opencode-ai (官方版)..."
+  info "安装 opencode-ai (官方版，npm 渠道)..."
   & npm install -g opencode-ai
   if ($LASTEXITCODE -ne 0) { err "安装失败，请检查 npm 权限" }
   ok "opencode 安装完成"
 }
 
-# ── 3. 克隆配置仓库（community 分支）────────────────────────
+# ── 3. 克隆配置仓库（D4 条件 2/3: 固定 CONFIG_REF commit SHA）──
 if (Test-Path (Join-Path $CONFIG_DIR ".git")) {
-  info "配置目录已存在，更新中..."
+  info "配置目录已存在，更新中（固定到 $CONFIG_REF）..."
   Push-Location $CONFIG_DIR
-  & git fetch origin
-  & git checkout community 2>$null
-  if ($LASTEXITCODE -ne 0) {
-    & git checkout -b community --track origin/community
-  }
-  & git pull origin community --rebase 2>&1 | Select-Object -Last 2
+  & git fetch origin 2>&1 | Select-Object -Last 2
+  & git checkout $CONFIG_REF 2>$null
+  if ($LASTEXITCODE -ne 0) { Pop-Location; err "CONFIG_REF 固定版本不存在: $CONFIG_REF（D4 条件 2/3）" }
   Pop-Location
-  ok "配置已更新"
+  ok "配置已更新到固定版本"
 } else {
   if (Test-Path $CONFIG_DIR) {
     Rename-Item -Path $CONFIG_DIR -NewName "${CONFIG_DIR}.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
   }
-  info "克隆配置（community 分支）..."
-  & git clone --branch community $CONFIG_REPO $CONFIG_DIR
-  ok "配置克隆完成"
+  info "克隆配置（固定到 $CONFIG_REF）..."
+  & git clone $CONFIG_REPO $CONFIG_DIR
+  Push-Location $CONFIG_DIR
+  & git fetch origin 2>&1 | Select-Object -Last 2
+  & git checkout $CONFIG_REF 2>$null
+  if ($LASTEXITCODE -ne 0) { Pop-Location; err "CONFIG_REF 固定版本不存在: $CONFIG_REF（D4 条件 2/3）" }
+  Pop-Location
+  ok "配置克隆完成（固定版本）"
 }
 
 # ── 4. 设置 API Key ──────────────────────────────────────────
@@ -138,11 +148,13 @@ $content = $content.Replace("PROVIDER_API_KEY", $PROVIDER_KEY)
 Set-Content $CONFIG_FILE $content -Encoding UTF8
 ok "opencode.jsonc 已生成"
 
-# ── 6. 完成 ───────────────────────────────────────────────────
+# ── 6. 完成（D4 条件 6: 显示真实来源与固定版本）──────────────
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 ok "安装完成！"
 Write-Host ""
+Write-Host "  来源:     $COMMUNITY_URL" -ForegroundColor White
+Write-Host "  版本:     $RELEASE_TAG" -ForegroundColor White
 Write-Host "  配置目录: $CONFIG_DIR" -ForegroundColor White
 Write-Host "  Key 文件: $KEYS_FILE (仅本机可见)" -ForegroundColor Yellow
 Write-Host "  运行方式: opencode" -ForegroundColor White
@@ -152,7 +164,6 @@ Write-Host "    • orchestrator agent（主编排，自动分工）" -Foregroun
 Write-Host "    • Sisyphus / Prometheus（oh-my-opencode 插件）" -ForegroundColor White
 Write-Host "    • Provider 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）" -ForegroundColor White
 Write-Host "    • 自动 compaction + context pruning" -ForegroundColor White
-$COMMUNITY_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/community-setup.ps1"
 Write-Host "  更新时重新运行，Key 自动从上次记录填入：" -ForegroundColor Gray
 Write-Host "    irm $COMMUNITY_URL | iex" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White

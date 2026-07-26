@@ -1,9 +1,9 @@
-# ═══════════════════════════════════════════════════════════
-#  开渠 (OpenCode) 个人版一键安装/更新 — Windows (PowerShell)
+﻿# ═══════════════════════════════════════════════════════════
+#  开渠 (OpenCode) 个人版一键安装/更新 - Windows (PowerShell)
 #
 #  用法：
-#    # 首次安装 / 完整更新（管理员 PowerShell 推荐）
-#    irm https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.ps1 | iex
+#    # 首次安装 / 完整更新（管理员 PowerShell 推荐，raw URL 固定到 RELEASE_TAG）
+#    irm https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.3/scripts/setup.ps1 | iex
 #
 #    # 只更新所有 API Key
 #    .\setup.ps1 --keys
@@ -29,6 +29,8 @@ $ErrorActionPreference = "Stop"
 $RELEASE_TAG   = "v1.3.17-kaiqu.3"
 $RELEASE_BASE  = "https://github.com/vinnfeng/opencode/releases/download/$RELEASE_TAG"
 $CONFIG_REPO   = "https://github.com/vinnfeng/opencode-config.git"
+# D4 条件 2/3: CONFIG checkout 固定 commit SHA（非浮动 office-windows 分支）
+$CONFIG_REF    = "de6a37e8ffcf1f73ebe0aa1fb162794d1b965e7c"
 $CONFIG_DIR    = Join-Path $env:APPDATA "opencode"
 $INSTALL_DIR   = Join-Path $env:LOCALAPPDATA "opencode-bin"
 $KEYS_FILE     = Join-Path $CONFIG_DIR ".keys"
@@ -37,11 +39,61 @@ $CONFIG_FILE   = Join-Path $CONFIG_DIR "opencode.jsonc"
 $VERSION_STAMP          = Join-Path $CONFIG_DIR ".installed_version"
 $PREVIOUS_VERSION_STAMP = Join-Path $CONFIG_DIR ".previous_version"
 $BACKUP_DIR             = Join-Path $env:LOCALAPPDATA "opencode-bin\backups"
+# D4 条件 5: manifest 保存来源/版本/哈希/获取时间
+$MANIFEST_FILE          = Join-Path $CONFIG_DIR ".install_manifest"
+# D4 条件 2/3: 脚本分发 URL 固定到 RELEASE_TAG（非浮动分支）
+$SETUP_URL              = "https://raw.githubusercontent.com/vinnfeng/opencode/$RELEASE_TAG/scripts/setup.ps1"
 
 function ok   { param($m) Write-Host "✅  $m" -ForegroundColor Green }
 function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
 function info { param($m) Write-Host "➜   $m" -ForegroundColor Cyan }
 function err  { param($m) Write-Host "❌  $m" -ForegroundColor Red; exit 1 }
+
+# ── D4: SHA256 验证（条件 4）─────────────────────────────────
+# 取 $url 的 .sha256 校验文件，对比 $file 实际哈希；不存在/不匹配 err 阻断
+function Verify-Sha256 { param($url, $file)
+  $sumUrl = "$url.sha256"
+  $tmp = [System.IO.Path]::GetTempFileName()
+  try {
+    Invoke-WebRequest -Uri $sumUrl -OutFile $tmp -UseBasicParsing
+  } catch {
+    Remove-Item $tmp -ErrorAction SilentlyContinue
+    err "SHA256 校验文件不存在: $sumUrl（D4 条件 4：release 须附 .sha256 资产，当前 release 未附）"
+  }
+  $content = (Get-Content $tmp -Raw).Trim()
+  Remove-Item $tmp -ErrorAction SilentlyContinue
+  $expected = ""
+  if ($content -match '([a-fA-F0-9]{64})') { $expected = $matches[1].ToLower() }
+  if (-not $expected) { err "SHA256 校验文件格式无效: $sumUrl" }
+  $actual = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+  if ($actual -ne $expected) {
+    err "SHA256 校验失败: $file（预期 $($expected.Substring(0,16))…，实际 $($actual.Substring(0,16))…）"
+  }
+  return $actual
+}
+
+# ── D4: manifest 保存（条件 5）──────────────────────────────
+function Save-Manifest { param($sourceUrl, $version, $sha256, $fetchTime)
+  New-Item -ItemType Directory -Force -Path (Split-Path $MANIFEST_FILE) | Out-Null
+  $content = @"
+source_url=$sourceUrl
+version=$version
+sha256=$sha256
+fetch_time=$fetchTime
+"@
+  Set-Content $MANIFEST_FILE $content -Encoding UTF8
+}
+
+# ── D4: 来源/版本一致性阻断（条件 7）────────────────────────
+function Check-Consistency {
+  if (-not (Test-Path $MANIFEST_FILE)) { return }
+  $lines = Get-Content $MANIFEST_FILE
+  $recordedUrl = ($lines | Where-Object { $_ -match "^source_url=" } | Select-Object -First 1) -replace "^source_url=", ""
+  $recordedVersion = ($lines | Where-Object { $_ -match "^version=" } | Select-Object -First 1) -replace "^version=", ""
+  if ($recordedUrl -ne $DOWNLOAD_URL -or $recordedVersion -ne $RELEASE_TAG) {
+    err "来源/版本不一致（D4 条件 7 阻断）: 记录 $recordedUrl/$recordedVersion，当前 $DOWNLOAD_URL/$RELEASE_TAG"
+  }
+}
 
 function Read-Key { param($name)
   if (Test-Path $KEYS_FILE) {
@@ -85,7 +137,7 @@ function Prompt-Key { param($name, $label, [bool]$required=$true, $hint="")
     if ($required) {
       Write-Host "  (未设置，必填)" -ForegroundColor Yellow
     } else {
-      Write-Host "  (未设置，可选 — 直接回车跳过)" -ForegroundColor Yellow
+      Write-Host "  (未设置，可选 - 直接回车跳过)" -ForegroundColor Yellow
     }
   }
   $secureInput = Read-Host "  输入" -AsSecureString
@@ -142,7 +194,7 @@ function Generate-Config {
 if ($h -or $help) {
   Write-Host "用法：" -ForegroundColor White
   Write-Host "  首次安装 / 完整更新" -ForegroundColor Cyan
-  Write-Host "    irm https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.ps1 | iex"
+  Write-Host "    irm $SETUP_URL | iex"
   Write-Host ""
   Write-Host "  只更新所有 API Key" -ForegroundColor Cyan
   Write-Host "    .\setup.ps1 --keys"
@@ -170,8 +222,9 @@ elseif ($key)  { $MODE = "key" }
 
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
-Write-Host "  开渠 OpenCode 个人版 — 安装/更新 (Windows)  " -ForegroundColor White
+Write-Host "  开渠 OpenCode 个人版 - 安装/更新 (Windows)  " -ForegroundColor White
 Write-Host "  版本: $RELEASE_TAG" -ForegroundColor White
+Write-Host "  来源: $RELEASE_BASE" -ForegroundColor White
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 Write-Host ""
 
@@ -205,12 +258,20 @@ if ($MODE -eq "rollback") {
   if ([string]::IsNullOrEmpty($prevTag)) { err "没有可用的回退版本（从未更新过，或备份已清除）" }
 
   $prevBin = Join-Path $BACKUP_DIR "opencode-$prevTag.exe"
-  if (-not (Test-Path $prevBin)) { err "备份二进制不存在: $prevBin" }
+  # D4 条件 10: 回滚资产必须事先存在
+  if (-not (Test-Path $prevBin)) { err "回滚资产不存在: $prevBin（D4 条件 10：更新前未备份该版本）" }
 
   $curTag = if (Test-Path $VERSION_STAMP) { (Get-Content $VERSION_STAMP -Raw).Trim() } else { "未知" }
-  info "回退: $curTag → $prevTag"
+  info "回退: $curTag -> $prevTag"
   Copy-Item $prevBin $INSTALL_PATH -Force
   Set-Content $VERSION_STAMP $prevTag -Encoding UTF8
+
+  # D4: 回滚 manifest（若有备份）
+  $prevManifest = Join-Path $BACKUP_DIR "manifest-$prevTag"
+  if (Test-Path $prevManifest) {
+    Copy-Item $prevManifest $MANIFEST_FILE -Force
+    ok "manifest 已回滚到 $prevTag"
+  }
 
   if (Test-Path "$CONFIG_FILE.bak") {
     Copy-Item "$CONFIG_FILE.bak" $CONFIG_FILE -Force
@@ -229,27 +290,26 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) { err "缺少依赖: g
 # ── full 模式：克隆/更新配置 + 设置 key ──────────────────────
 if ($MODE -eq "full") {
   if (Test-Path (Join-Path $CONFIG_DIR ".git")) {
-    info "拉取最新配置..."
+    info "拉取配置（固定到 $CONFIG_REF）..."
     Push-Location $CONFIG_DIR
-    $branch = & git branch --show-current
-    & git pull origin $branch --rebase 2>&1 | Select-Object -Last 2
+    & git fetch origin 2>&1 | Select-Object -Last 2
+    & git checkout $CONFIG_REF 2>$null
+    if ($LASTEXITCODE -ne 0) { Pop-Location; err "CONFIG_REF 固定版本不存在: $CONFIG_REF（D4 条件 2/3）" }
     Pop-Location
-    ok "配置已更新"
+    ok "配置已更新到固定版本"
   } else {
     if (Test-Path $CONFIG_DIR) {
       Rename-Item -Path $CONFIG_DIR -NewName "${CONFIG_DIR}.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
     }
-    info "克隆个人配置..."
+    info "克隆个人配置（固定到 $CONFIG_REF）..."
     & git clone $CONFIG_REPO $CONFIG_DIR
-    ok "配置克隆完成"
+    Push-Location $CONFIG_DIR
+    & git fetch origin 2>&1 | Select-Object -Last 2
+    & git checkout $CONFIG_REF 2>$null
+    if ($LASTEXITCODE -ne 0) { Pop-Location; err "CONFIG_REF 固定版本不存在: $CONFIG_REF（D4 条件 2/3）" }
+    Pop-Location
+    ok "配置克隆完成（固定版本）"
   }
-
-  Push-Location $CONFIG_DIR
-  & git fetch origin 2>$null
-  & git checkout office-windows 2>$null
-  if ($LASTEXITCODE -ne 0) { & git checkout -b office-windows --track origin/office-windows }
-  ok "已切换到 office-windows 分支"
-  Pop-Location
 
   Write-Host ""
   Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
@@ -257,8 +317,8 @@ if ($MODE -eq "full") {
   Write-Host "  Key 仅存于本机 $KEYS_FILE" -ForegroundColor Yellow
   Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 
-  Prompt-Key "PROVIDER_API_KEY"    "Provider API Key（必填 — 全平台模型入口）" $true  "向管理员获取 API Key"
-  Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选 — 阿里云 Qwen）"   $false
+  Prompt-Key "PROVIDER_API_KEY"    "Provider API Key（必填 - 全平台模型入口）" $true  "向管理员获取 API Key"
+  Prompt-Key "BAILIAN_API_KEY" "百炼 API Key（可选 - 阿里云 Qwen）"   $false
 
   Generate-Config
 }
@@ -282,23 +342,36 @@ if ($installedTag -eq $RELEASE_TAG -and $MODE -ne "binary") {
   ok "已是最新版 ($RELEASE_TAG)，无需更新"
   exit 0
 } else {
+  # D4 条件 7: 下载前来源/版本一致性阻断
+  Check-Consistency
   if ($installedTag) {
-    info "已安装: $installedTag → 更新至 $RELEASE_TAG"
-    # 更新前备份旧二进制，用于回退
+    info "已安装: $installedTag -> 更新至 $RELEASE_TAG"
+    # 更新前备份旧二进制，用于回退（D4 条件 10）
     New-Item -ItemType Directory -Force -Path $BACKUP_DIR | Out-Null
     $backupPath = Join-Path $BACKUP_DIR "opencode-$installedTag.exe"
     if (Test-Path $INSTALL_PATH) {
       Copy-Item $INSTALL_PATH $backupPath -Force
       Set-Content $PREVIOUS_VERSION_STAMP $installedTag -Encoding UTF8
+      # D4: manifest 备份
+      if (Test-Path $MANIFEST_FILE) {
+        Copy-Item $MANIFEST_FILE (Join-Path $BACKUP_DIR "manifest-$installedTag") -Force
+      }
       info "旧版本已备份: $backupPath"
     }
   } else { info "首次安装，下载 $BINARY_NAME..." }
+  # D4 条件 4/5: 下载到临时文件 -> SHA256 验证 -> manifest 保存 -> 移到正式路径
+  $tmpBin = [System.IO.Path]::GetTempFileName() + ".exe"
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   try {
-    Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $INSTALL_PATH -UseBasicParsing
+    Invoke-WebRequest -Uri $DOWNLOAD_URL -OutFile $tmpBin -UseBasicParsing
   } catch {
+    Remove-Item $tmpBin -ErrorAction SilentlyContinue
     err "下载失败: $DOWNLOAD_URL`n$_"
   }
+  $actualSha256 = Verify-Sha256 $DOWNLOAD_URL $tmpBin
+  $fetchTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+  Save-Manifest $DOWNLOAD_URL $RELEASE_TAG $actualSha256 $fetchTime
+  Move-Item $tmpBin $INSTALL_PATH -Force
   Set-Content $VERSION_STAMP $RELEASE_TAG -Encoding UTF8
   ok "二进制已安装: $INSTALL_PATH ($RELEASE_TAG)"
 }
@@ -311,17 +384,18 @@ if ($userPath -notlike "*$INSTALL_DIR*") {
   info "已将 $INSTALL_DIR 加入用户 PATH（重开 Shell 后生效）"
 }
 
-# ── 完成 ──────────────────────────────────────────────────────
+# ── 完成（D4 条件 6: 显示真实来源与固定版本 + SHA256）─────────
 Write-Host ""
 Write-Host "═══════════════════════════════════════════════" -ForegroundColor White
 ok "完成！"
 Write-Host ""
+Write-Host "  来源:     $DOWNLOAD_URL" -ForegroundColor White
 Write-Host "  版本:     $RELEASE_TAG" -ForegroundColor White
+if ($actualSha256) { Write-Host "  SHA256:   $($actualSha256.Substring(0,16))…" -ForegroundColor White }
 Write-Host "  配置:     $CONFIG_DIR" -ForegroundColor White
 Write-Host "  Key 文件: $KEYS_FILE (仅本机可见)" -ForegroundColor Yellow
 Write-Host "  运行:     opencode （重开 PowerShell 后生效）" -ForegroundColor White
 Write-Host ""
-$SETUP_URL = "https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.ps1"
 Write-Host "  后续常用命令（直接粘贴运行）：" -ForegroundColor White
 Write-Host "    更新所有 key:    irm $SETUP_URL | iex  # 或 .\setup.ps1 --keys（本地）" -ForegroundColor Cyan
 Write-Host "    只换 Provider key:   & ([scriptblock]::Create((irm $SETUP_URL))) --key mify" -ForegroundColor Cyan

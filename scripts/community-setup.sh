@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════
-#  开渠 (OpenCode) 社区版安装/更新 — macOS & Linux
+#  开渠 (OpenCode) 社区版安装/更新 - macOS & Linux
 #  安装官方 opencode + Provider 配置 + 优化 agent 体系
 #  Key 本地存储，不进 git，支持更新时保留上次配置
 #
-#  用法：
-#    ./community-setup.sh  (在 vinnfeng/opencode 克隆目录的 scripts/ 下运行)
+#  用法（raw URL 固定到 RELEASE_TAG，符合 RAW-URL-POLICY 条件 2/3）：
+#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.3/scripts/community-setup.sh)
 # ═══════════════════════════════════════════════════════════
 set -euo pipefail
 
+RELEASE_TAG="v1.3.17-kaiqu.3"
 CONFIG_REPO="https://github.com/vinnfeng/opencode-config.git"
+# D4 条件 2/3: CONFIG checkout 固定 commit SHA（非浮动 community 分支）
+CONFIG_REF="3b91bce58bb4d99b4b33c58d52a73e90721e1e75"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 KEYS_FILE="$CONFIG_DIR/.keys"
 TEMPLATE_FILE="$CONFIG_DIR/opencode.template.jsonc"
 CONFIG_FILE="$CONFIG_DIR/opencode.jsonc"
+# D4 条件 2/3: 脚本分发 URL 固定到 RELEASE_TAG（非浮动分支）
+COMMUNITY_URL="https://raw.githubusercontent.com/vinnfeng/opencode/$RELEASE_TAG/scripts/community-setup.sh"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -65,7 +70,7 @@ prompt_key() {
   echo -e "${BOLD}${label}${RESET}"
   [ -n "$hint" ] && echo -e "  ${BLUE}${hint}${RESET}"
   if [ -n "$current" ]; then
-    echo -e "  当前值: ${YELLOW}$(mask_key "$current")${RESET}"
+    echo -e "  当前值: ${YELLOW}$(mask_key "$current")}${RESET}"
     echo -e "  直接回车保留当前，输入新值则更新："
   else
     echo -e "  ${YELLOW}(未设置，请输入)${RESET}"
@@ -84,7 +89,8 @@ prompt_key() {
 
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}  开渠 OpenCode 社区版 — 安装/更新              ${RESET}"
+echo -e "${BOLD}  开渠 OpenCode 社区版 - 安装/更新              ${RESET}"
+echo -e "${BOLD}  版本: $RELEASE_TAG                            ${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 echo ""
 
@@ -94,27 +100,31 @@ for cmd in git curl node npm; do
 done
 
 # ── 2. 安装官方 opencode ──────────────────────────────────────
+# D4 说明：社区版二进制走 npm 渠道（npm 自带包签名校验），不走 release 资产下载，
+# 故 D4 条件 4（SHA256）对社区版不适用；npm install 本身即校验来源与完整性。
 if command -v opencode &>/dev/null; then
   ok "opencode 已安装: $(opencode --version 2>/dev/null || echo 'ok')"
 else
-  info "安装 opencode-ai (官方版)..."
+  info "安装 opencode-ai (官方版，npm 渠道)..."
   npm install -g opencode-ai || err "安装失败，请检查 npm 权限"
   ok "opencode 安装完成"
 fi
 
-# ── 3. 克隆配置仓库（community 分支）────────────────────────
+# ── 3. 克隆配置仓库（D4 条件 2/3: 固定 CONFIG_REF commit SHA）──
 if [ -d "$CONFIG_DIR/.git" ]; then
-  info "配置目录已存在，更新中..."
+  info "配置目录已存在，更新中（固定到 $CONFIG_REF）..."
   cd "$CONFIG_DIR"
-  git fetch origin
-  git checkout community 2>/dev/null || git checkout -b community --track origin/community
-  git pull origin community --rebase 2>&1 | tail -2
-  ok "配置已更新"
+  git fetch origin 2>&1 | tail -2
+  git checkout "$CONFIG_REF" 2>/dev/null || err "CONFIG_REF 固定版本不存在: $CONFIG_REF（D4 条件 2/3）"
+  ok "配置已更新到固定版本"
 else
   [ -d "$CONFIG_DIR" ] && mv "$CONFIG_DIR" "${CONFIG_DIR}.bak.$(date +%Y%m%d%H%M%S)"
-  info "克隆配置（community 分支）..."
-  git clone --branch community "$CONFIG_REPO" "$CONFIG_DIR"
-  ok "配置克隆完成"
+  info "克隆配置（固定到 $CONFIG_REF）..."
+  git clone "$CONFIG_REPO" "$CONFIG_DIR"
+  cd "$CONFIG_DIR"
+  git fetch origin 2>&1 | tail -2
+  git checkout "$CONFIG_REF" 2>/dev/null || err "CONFIG_REF 固定版本不存在: $CONFIG_REF（D4 条件 2/3）"
+  ok "配置克隆完成（固定版本）"
 fi
 
 cd "$CONFIG_DIR"
@@ -143,11 +153,13 @@ node -e "
 "
 ok "opencode.jsonc 已生成"
 
-# ── 6. 完成 ───────────────────────────────────────────────────
+# ── 6. 完成（D4 条件 6: 显示真实来源与固定版本）──────────────
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 ok "安装完成！"
 echo ""
+echo -e "  来源:     ${BOLD}$COMMUNITY_URL${RESET}"
+echo -e "  版本:     ${BOLD}$RELEASE_TAG${RESET}"
 echo -e "  配置目录: ${BOLD}$CONFIG_DIR${RESET}"
 echo -e "  Key 文件: ${BOLD}$KEYS_FILE${RESET} (仅本机可见)"
 echo -e "  运行:     ${BOLD}opencode${RESET}"
@@ -157,7 +169,6 @@ echo -e "    • orchestrator agent（主编排，自动分工）"
 echo -e "    • Sisyphus / Prometheus（oh-my-opencode 插件）"
 echo -e "    • Provider 全模型接入（Opus/Sonnet/GPT-5.4/Gemini）"
 echo -e "    • 自动 compaction + context pruning"
-COMMUNITY_URL="https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/community-setup.sh"
 echo -e "  更新时重新运行，Key 自动从上次记录填入："
 echo -e "    ${BLUE}bash <(curl -fsSL $COMMUNITY_URL)${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"

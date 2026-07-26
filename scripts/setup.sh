@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════
-#  开渠 (OpenCode) 个人版一键安装/更新 — macOS & Linux
+#  开渠 (OpenCode) 个人版一键安装/更新 - macOS & Linux
 #
-#  首次安装 / 完整更新：
-#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh)
+#  首次安装 / 完整更新（raw URL 固定到 RELEASE_TAG，符合 RAW-URL-POLICY 条件 2/3）：
+#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.3/scripts/setup.sh)
 #
 #  带参数运行（同样用 curl 方式）：
 #    bash <(curl -fsSL ...setup.sh) --keys       # 只更新所有 key
@@ -13,7 +13,7 @@
 #    bash <(curl -fsSL ...setup.sh) --help       # 查看帮助
 #
 #  也可保存到本地后使用：
-#    curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh
+#    curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.3/scripts/setup.sh -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh
 #    ~/opencode-setup.sh --keys
 # ═══════════════════════════════════════════════════════════
 set -euo pipefail
@@ -22,6 +22,8 @@ RELEASE_REPO="vinnfeng/opencode"
 RELEASE_TAG="v1.3.17-kaiqu.3"
 RELEASE_BASE="https://github.com/$RELEASE_REPO/releases/download/$RELEASE_TAG"
 CONFIG_REPO="https://github.com/vinnfeng/opencode-config.git"
+# D4 条件 2/3: CONFIG checkout 固定 commit SHA（非浮动 main 分支），获取时锁定
+CONFIG_REF="239172fb812ab87d79eada36f9253a39018e59bc"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/opencode"
 KEYS_FILE="$CONFIG_DIR/.keys"
@@ -30,6 +32,10 @@ CONFIG_FILE="$CONFIG_DIR/opencode.jsonc"
 VERSION_STAMP="$CONFIG_DIR/.installed_version"
 PREVIOUS_VERSION_STAMP="$CONFIG_DIR/.previous_version"
 BACKUP_DIR="$CACHE_DIR/backups"
+# D4 条件 5: manifest 保存来源/版本/哈希/获取时间
+MANIFEST_FILE="$CONFIG_DIR/.install_manifest"
+# D4 条件 2/3: 脚本分发 URL 固定到 RELEASE_TAG（非浮动分支）
+SETUP_URL="https://raw.githubusercontent.com/vinnfeng/opencode/$RELEASE_TAG/scripts/setup.sh"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -38,12 +44,56 @@ warn() { echo -e "${YELLOW}⚠️   $*${RESET}"; }
 err()  { echo -e "${RED}❌  $*${RESET}"; exit 1; }
 info() { echo -e "${BLUE}➜   $*${RESET}"; }
 
+# ── D4: SHA256 验证（条件 4）─────────────────────────────────
+# 取 $url 的 .sha256 校验文件，对比 $file 实际哈希；不存在/不匹配 err 阻断
+verify_sha256() {
+  local url="$1" file="$2" sum_url sum_tmp expected actual
+  sum_url="${url}.sha256"
+  sum_tmp="$(mktemp)"
+  if ! curl -fsSL "$sum_url" -o "$sum_tmp" 2>/dev/null || [ ! -s "$sum_tmp" ]; then
+    rm -f "$sum_tmp"
+    err "SHA256 校验文件不存在: $sum_url（D4 条件 4：release 须附 .sha256 资产，当前 release 未附）"
+  fi
+  expected="$(grep -oE '^[a-f0-9]{64}' "$sum_tmp" | head -1)"
+  rm -f "$sum_tmp"
+  [ -n "$expected" ] || err "SHA256 校验文件格式无效: $sum_url"
+  actual="$(sha256sum "$file" | cut -d' ' -f1)"
+  if [ "$actual" != "$expected" ]; then
+    err "SHA256 校验失败: $file（预期 ${expected:0:16}…，实际 ${actual:0:16}…）"
+  fi
+  printf '%s' "$actual"
+}
+
+# ── D4: manifest 保存（条件 5）──────────────────────────────
+save_manifest() {
+  local source_url="$1" version="$2" sha256="$3" fetch_time="$4"
+  mkdir -p "$(dirname "$MANIFEST_FILE")"
+  {
+    echo "source_url=$source_url"
+    echo "version=$version"
+    echo "sha256=$sha256"
+    echo "fetch_time=$fetch_time"
+  } > "$MANIFEST_FILE"
+  chmod 600 "$MANIFEST_FILE"
+}
+
+# ── D4: 来源/版本一致性阻断（条件 7）────────────────────────
+check_consistency() {
+  [ -f "$MANIFEST_FILE" ] || return 0
+  local recorded_url recorded_version
+  recorded_url="$(grep -E '^source_url=' "$MANIFEST_FILE" | cut -d= -f2-)"
+  recorded_version="$(grep -E '^version=' "$MANIFEST_FILE" | cut -d= -f2-)"
+  if [ "$recorded_url" != "$DOWNLOAD_URL" ] || [ "$recorded_version" != "$RELEASE_TAG" ]; then
+    err "来源/版本不一致（D4 条件 7 阻断）: 记录 $recorded_url/$recorded_version，当前 $DOWNLOAD_URL/$RELEASE_TAG"
+  fi
+}
+
 # ── 参数解析 ─────────────────────────────────────────────────
 MODE="full"       # full | keys | key | binary | rollback
 TARGET_KEY=""     # 指定单个 key 时的 provider 名（mify / bailian）
 
 show_help() {
-  local U="https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh"
+  local U="$SETUP_URL"
   echo -e "${BOLD}用法：${RESET}"
   echo -e "  ${BLUE}首次安装 / 完整更新${RESET}"
   echo -e "    bash <(curl -fsSL $U)"
@@ -126,7 +176,7 @@ prompt_key() {
     echo -e "  直接回车保留当前，输入新值则更新："
   else
     if [ "$required" -eq 0 ]; then
-      echo -e "  ${YELLOW}(未设置，可选 — 直接回车跳过)${RESET}"
+      echo -e "  ${YELLOW}(未设置，可选 - 直接回车跳过)${RESET}"
     else
       echo -e "  ${YELLOW}(未设置，必填)${RESET}"
     fi
@@ -154,7 +204,7 @@ generate_config() {
   provider_key="$(read_key PROVIDER_API_KEY)"
   bailian_key="$(read_key BAILIAN_API_KEY)"
 
-  [ -z "$provider_key" ] && err "PROVIDER_API_KEY 未设置，请运行：bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh) --key mify"
+  [ -z "$provider_key" ] && err "PROVIDER_API_KEY 未设置，请运行：bash <(curl -fsSL $SETUP_URL) --key mify"
 
   local omo_path="$CACHE_DIR/node_modules/oh-my-opencode"
   if [ -d "$omo_path" ]; then
@@ -186,8 +236,9 @@ generate_config() {
 # ── 主流程 ────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
-echo -e "${BOLD}  开渠 OpenCode 个人版 — 安装/更新              ${RESET}"
+echo -e "${BOLD}  开渠 OpenCode 个人版 - 安装/更新              ${RESET}"
 echo -e "${BOLD}  版本: $RELEASE_TAG                           ${RESET}"
+echo -e "${BOLD}  来源: $RELEASE_BASE                          ${RESET}"
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 echo ""
 
@@ -195,6 +246,7 @@ echo ""
 for cmd in node git curl; do
   command -v "$cmd" &>/dev/null || err "缺少依赖: $cmd（请先安装）"
 done
+command -v sha256sum &>/dev/null || err "缺少依赖: sha256sum（D4 条件 4 校验所需）"
 
 # ── only-keys 模式 ────────────────────────────────────────────
 if [ "$MODE" = "keys" ]; then
@@ -241,14 +293,21 @@ if [ "$MODE" = "rollback" ]; then
   [ -z "$PREV_TAG" ] && err "没有可用的回退版本（从未更新过，或备份已清除）"
 
   PREV_BIN="$BACKUP_DIR/opencode-${PREV_TAG}"
-  [ -f "$PREV_BIN" ] || err "备份二进制不存在: $PREV_BIN"
+  # D4 条件 10: 回滚资产必须事先存在
+  [ -f "$PREV_BIN" ] || err "回滚资产不存在: $PREV_BIN（D4 条件 10：更新前未备份该版本）"
 
   INSTALL_PATH="$(command -v opencode 2>/dev/null || echo "/usr/local/bin/opencode")"
-  info "回退: $(cat "$VERSION_STAMP" 2>/dev/null || echo "未知") → $PREV_TAG"
+  info "回退: $(cat "$VERSION_STAMP" 2>/dev/null || echo "未知") -> $PREV_TAG"
 
   if [ -w "$(dirname "$INSTALL_PATH")" ]; then cp "$PREV_BIN" "$INSTALL_PATH"
   else sudo cp "$PREV_BIN" "$INSTALL_PATH"; fi
   echo "$PREV_TAG" > "$VERSION_STAMP"
+
+  # D4: 回滚 manifest（若有备份）
+  if [ -f "$BACKUP_DIR/manifest-${PREV_TAG}" ]; then
+    cp "$BACKUP_DIR/manifest-${PREV_TAG}" "$MANIFEST_FILE"
+    ok "manifest 已回滚到 $PREV_TAG"
+  fi
 
   if [ -f "${CONFIG_FILE}.bak" ]; then
     cp "${CONFIG_FILE}.bak" "$CONFIG_FILE"
@@ -275,20 +334,22 @@ case "$OS-$ARCH" in
 esac
 
 if [ "$MODE" = "full" ]; then
-  # 3. 克隆或更新配置仓库
+  # 3. 克隆或更新配置仓库（D4 条件 2/3: 固定 CONFIG_REF commit SHA）
   if [ -d "$CONFIG_DIR/.git" ]; then
-    info "拉取最新配置..."
+    info "拉取配置（固定到 $CONFIG_REF）..."
     cd "$CONFIG_DIR"
-    git pull origin "$(git branch --show-current)" --rebase 2>&1 | tail -2
-    ok "配置已更新"
+    git fetch origin 2>&1 | tail -2
+    git checkout "$CONFIG_REF" 2>/dev/null || err "CONFIG_REF 固定版本不存在: $CONFIG_REF（D4 条件 2/3）"
+    ok "配置已更新到固定版本"
   else
     [ -d "$CONFIG_DIR" ] && mv "$CONFIG_DIR" "${CONFIG_DIR}.bak.$(date +%Y%m%d%H%M%S)"
-    info "克隆个人配置..."
+    info "克隆个人配置（固定到 $CONFIG_REF）..."
     git clone "$CONFIG_REPO" "$CONFIG_DIR"
-    ok "配置克隆完成"
+    cd "$CONFIG_DIR"
+    git fetch origin 2>&1 | tail -2
+    git checkout "$CONFIG_REF" 2>/dev/null || err "CONFIG_REF 固定版本不存在: $CONFIG_REF（D4 条件 2/3）"
+    ok "配置克隆完成（固定版本）"
   fi
-  cd "$CONFIG_DIR"
-  git checkout main 2>/dev/null || true
 
   # 4. API Keys
   echo ""
@@ -297,8 +358,8 @@ if [ "$MODE" = "full" ]; then
   echo -e "  Key 仅存于本机 ${YELLOW}$KEYS_FILE${RESET}，不进 git"
   echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 
-  prompt_key "PROVIDER_API_KEY"    "Provider API Key（必填 — 全平台模型入口）" 1 "向管理员获取 API Key"
-  prompt_key "BAILIAN_API_KEY" "百炼 API Key（可选 — 阿里云 Qwen）"   0
+  prompt_key "PROVIDER_API_KEY"    "Provider API Key（必填 - 全平台模型入口）" 1 "向管理员获取 API Key"
+  prompt_key "BAILIAN_API_KEY" "百炼 API Key（可选 - 阿里云 Qwen）"   0
 
   # 5. 生成配置
   generate_config
@@ -306,6 +367,9 @@ fi
 
 # 6. 下载并安装二进制
 DOWNLOAD_URL="$RELEASE_BASE/$BINARY_NAME"
+
+# D4 条件 7: 下载前一致性阻断（对比 manifest 记录的来源/版本）
+check_consistency
 
 if command -v opencode &>/dev/null; then
   INSTALL_PATH="$(command -v opencode)"
@@ -316,17 +380,22 @@ if command -v opencode &>/dev/null; then
     ok "已是最新版 ($RELEASE_TAG)，无需更新"
     exit 0
   else
-    info "已安装: ${INSTALLED_TAG:-未知} → 更新至 $RELEASE_TAG"
-    # 更新前备份旧二进制，用于回退
+    info "已安装: ${INSTALLED_TAG:-未知} -> 更新至 $RELEASE_TAG"
+    # 更新前备份旧二进制，用于回退（D4 条件 10）
     if [ -n "$INSTALLED_TAG" ]; then
       mkdir -p "$BACKUP_DIR"
       cp "$INSTALL_PATH" "$BACKUP_DIR/opencode-${INSTALLED_TAG}"
       echo "$INSTALLED_TAG" > "$PREVIOUS_VERSION_STAMP"
+      [ -f "$MANIFEST_FILE" ] && cp "$MANIFEST_FILE" "$BACKUP_DIR/manifest-${INSTALLED_TAG}"
       info "旧版本已备份: $BACKUP_DIR/opencode-${INSTALLED_TAG}"
     fi
     TMP_BIN="$(mktemp)"
     curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" || err "下载失败: $DOWNLOAD_URL"
     chmod +x "$TMP_BIN"
+    # D4 条件 4/5: SHA256 验证 + manifest 保存
+    ACTUAL_SHA256="$(verify_sha256 "$DOWNLOAD_URL" "$TMP_BIN")"
+    FETCH_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")"
+    save_manifest "$DOWNLOAD_URL" "$RELEASE_TAG" "$ACTUAL_SHA256" "$FETCH_TIME"
     if [ -w "$(dirname "$INSTALL_PATH")" ]; then mv "$TMP_BIN" "$INSTALL_PATH"
     else sudo mv "$TMP_BIN" "$INSTALL_PATH"; fi
     echo "$RELEASE_TAG" > "$VERSION_STAMP"
@@ -338,23 +407,28 @@ else
   TMP_BIN="$(mktemp)"
   curl -fsSL --progress-bar "$DOWNLOAD_URL" -o "$TMP_BIN" || err "下载失败: $DOWNLOAD_URL"
   chmod +x "$TMP_BIN"
+  # D4 条件 4/5: SHA256 验证 + manifest 保存
+  ACTUAL_SHA256="$(verify_sha256 "$DOWNLOAD_URL" "$TMP_BIN")"
+  FETCH_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")"
+  save_manifest "$DOWNLOAD_URL" "$RELEASE_TAG" "$ACTUAL_SHA256" "$FETCH_TIME"
   if [ -w "$(dirname "$INSTALL_PATH")" ]; then mv "$TMP_BIN" "$INSTALL_PATH"
   else sudo mv "$TMP_BIN" "$INSTALL_PATH"; fi
   echo "$RELEASE_TAG" > "$VERSION_STAMP"
   ok "二进制已安装: $INSTALL_PATH ($RELEASE_TAG)"
 fi
 
-# 7. 完成
+# 7. 完成（D4 条件 6: 显示真实来源与固定版本 + SHA256）
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════${RESET}"
 ok "完成！"
 echo ""
+echo -e "  来源:     ${BOLD}$DOWNLOAD_URL${RESET}"
 echo -e "  版本:     ${BOLD}$RELEASE_TAG${RESET}"
+[ -n "${ACTUAL_SHA256:-}" ] && echo -e "  SHA256:   ${BOLD}${ACTUAL_SHA256:0:16}…${RESET}"
 echo -e "  配置:     ${BOLD}$CONFIG_DIR${RESET}"
 echo -e "  Key 文件: ${BOLD}$KEYS_FILE${RESET} (仅本机可见)"
 echo -e "  运行:     ${BOLD}opencode${RESET}"
 echo ""
-SETUP_URL="https://raw.githubusercontent.com/vinnfeng/opencode/release/kaiqu/scripts/setup.sh"
 echo -e "  后续常用命令（直接粘贴运行）："
 echo -e "    更新所有 key:    ${BLUE}bash <(curl -fsSL $SETUP_URL) --keys${RESET}"
 echo -e "    只换 Provider key:   ${BLUE}bash <(curl -fsSL $SETUP_URL) --key mify${RESET}"
