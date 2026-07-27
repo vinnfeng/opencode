@@ -33,6 +33,8 @@ $CONFIG_REPO   = "https://github.com/vinnfeng/opencode-config.git"
 $CONFIG_REF    = "de6a37e8ffcf1f73ebe0aa1fb162794d1b965e7c"
 $CONFIG_DIR    = Join-Path $env:APPDATA "opencode"
 $INSTALL_DIR   = Join-Path $env:LOCALAPPDATA "opencode-bin"
+# D4 缺陷6修复: INSTALL_PATH 必须在 rollback 块（Copy-Item 处）使用前定义，否则 Copy-Item 到空路径 → rc=0 打印成功但目标不存在（假成功）
+$INSTALL_PATH  = Join-Path $INSTALL_DIR "opencode.exe"
 $KEYS_FILE     = Join-Path $CONFIG_DIR ".keys"
 $TEMPLATE_FILE = Join-Path $CONFIG_DIR "opencode.template.jsonc"
 $CONFIG_FILE   = Join-Path $CONFIG_DIR "opencode.jsonc"
@@ -49,17 +51,26 @@ function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
 function info { param($m) Write-Host "➜   $m" -ForegroundColor Cyan }
 function err  { param($m) Write-Host "❌  $m" -ForegroundColor Red; exit 1 }
 
-# ── D4 缺陷2: 可信来源白名单校验 ────────────────────────────
+# ── D4 缺陷2: 可信来源白名单校验（硬化：拒 dot-segment 绕过）──
 function Assert-TrustedSource { param($url)
-  if ($url -like "https://raw.githubusercontent.com/vinnfeng/*" -or $url -like "https://github.com/vinnfeng/*") { return }
-  err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/*）"
-}
-# ── D4 缺陷5: 不可变 ref 校验（禁止浮动分支作一键执行输入）───
-function Assert-ImmutableRef { param($ref)
-  $floating = @("main", "master", "dev", "develop", "latest", "HEAD", "")
-  if ($floating -contains $ref) {
-    err "拒绝浮动 ref（D4 缺陷5）: '$ref'（须固定 tag 或 commit SHA，不得用 main/dev/latest）"
+  if (-not ($url -like "https://github.com/vinnfeng/*" -or $url -like "https://raw.githubusercontent.com/vinnfeng/*")) {
+    err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/* 或 raw.githubusercontent.com/vinnfeng/*）"
   }
+  if ($url -match '/(\.\.?)(/|$)|%2[eE]') {
+    err "来源含 dot-segment/编码点（D4 缺陷2 路径穿越）: $url"
+  }
+}
+# ── D4 缺陷5: 不可变 ref 校验（白名单：仅 40hex SHA 或 vX.Y.Z[-pre] tag）──
+function Assert-ImmutableRef { param($ref)
+  if ([string]::IsNullOrEmpty($ref)) { err "拒绝空 ref（D4 缺陷5）" }
+  if ($ref -cmatch '^[0-9a-f]{40}$') { return }
+  if ($ref -cmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$') { return }
+  err "拒绝浮动/非法 ref（D4 缺陷5）: '$ref'（仅允许 40位hex SHA 或 vX.Y.Z[-pre] tag；禁 main/master/dev/release/office-windows/latest/HEAD 等）"
+}
+# ── D4 缺陷3: CONFIG_REF 必须 40位hex commit SHA（防误填分支名/tag）──
+function Assert-CommitSha { param($ref)
+  if ($ref -cmatch '^[0-9a-f]{40}$') { return }
+  err "CONFIG_REF 必须 40位hex commit SHA（D4 缺陷3）: '$ref'（不得用分支名/tag）"
 }
 
 # ── D4: SHA256 验证（条件 4）─────────────────────────────────
@@ -103,8 +114,16 @@ function Check-Consistency {
   $lines = Get-Content $MANIFEST_FILE
   $recordedUrl = ($lines | Where-Object { $_ -match "^source_url=" } | Select-Object -First 1) -replace "^source_url=", ""
   $recordedVersion = ($lines | Where-Object { $_ -match "^version=" } | Select-Object -First 1) -replace "^version=", ""
+  $recordedSha = ($lines | Where-Object { $_ -match "^sha256=" } | Select-Object -First 1) -replace "^sha256=", ""
   if ($recordedUrl -ne $DOWNLOAD_URL -or $recordedVersion -ne $RELEASE_TAG) {
     err "来源/版本不一致（D4 条件 7 阻断）: 记录 $recordedUrl/$recordedVersion，当前 $DOWNLOAD_URL/$RELEASE_TAG"
+  }
+  # 缺陷4强化：已装二进制实际 sha 必须与 manifest 记录一致（防同 URL/version 下二进制被替换/篡改）
+  if ($INSTALL_PATH -and $recordedSha -and (Test-Path $INSTALL_PATH)) {
+    $actualSha = (Get-FileHash $INSTALL_PATH -Algorithm SHA256).Hash.ToLower()
+    if ($actualSha -ne $recordedSha.ToLower()) {
+      err "已装二进制哈希与 manifest 不符（D4 缺陷4 篡改检测）: 记录 $($recordedSha.Substring(0,16))…，实际 $($actualSha.Substring(0,16))…"
+    }
   }
 }
 
@@ -192,7 +211,7 @@ function Generate-Config {
     "var fs=require('fs'),e=process.env;"
     "var c=fs.readFileSync(e.GEN_TPL,'utf8');"
     "c=c.split('PROVIDER_API_KEY').join(e.GEN_PROVIDER);"
-    "c=c.split('PLUGIN_PATH').join('oh-my-opencode@latest');"
+    "c=c.split('PLUGIN_PATH').join('oh-my-opencode@4.19.2');"
     "var obj=JSON.parse(c);"
     "if(e.GEN_BAILIAN){obj.provider.bailian.options.apiKey=e.GEN_BAILIAN;}else{delete obj.provider.bailian;}"
     "fs.writeFileSync(e.GEN_OUT,JSON.stringify(obj,null,2));"
@@ -277,6 +296,11 @@ if ($MODE -eq "rollback") {
   $curTag = if (Test-Path $VERSION_STAMP) { (Get-Content $VERSION_STAMP -Raw).Trim() } else { "未知" }
   info "回退: $curTag -> $prevTag"
   Copy-Item $prevBin $INSTALL_PATH -Force
+  # 缺陷6: 复制后校验目标存在 + hash 与备份一致（防 rc=0 打印成功但目标不存在的假成功）
+  if (-not (Test-Path $INSTALL_PATH)) { err "回滚复制失败，目标不存在: $INSTALL_PATH（D4 缺陷6）" }
+  $rollbackSha = (Get-FileHash $INSTALL_PATH -Algorithm SHA256).Hash.ToLower()
+  $backupSha = (Get-FileHash $prevBin -Algorithm SHA256).Hash.ToLower()
+  if ($rollbackSha -ne $backupSha) { err "回滚哈希与备份不符（D4 缺陷6）: $INSTALL_PATH vs $prevBin" }
   Set-Content $VERSION_STAMP $prevTag -Encoding UTF8
 
   # D4: 回滚 manifest（若有备份）
@@ -305,6 +329,7 @@ Assert-TrustedSource $SETUP_URL
 Assert-TrustedSource $RELEASE_BASE
 Assert-TrustedSource $CONFIG_REPO
 Assert-ImmutableRef $RELEASE_TAG
+Assert-CommitSha $CONFIG_REF
 
 # ── full 模式：克隆/更新配置 + 设置 key ──────────────────────
 if ($MODE -eq "full") {
@@ -349,9 +374,11 @@ $ARCH = if ([System.Environment]::Is64BitOperatingSystem) {
 
 $BINARY_NAME  = "opencode-windows-$ARCH.exe"
 $DOWNLOAD_URL = "$RELEASE_BASE/$BINARY_NAME"
-$INSTALL_PATH = Join-Path $INSTALL_DIR "opencode.exe"
 
 New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+
+# D4 条件7 + 缺陷4: 一致性阻断 + 已装二进制 sha 篡改检测（须在 skip 判断前，否则 skip 路径绕过校验）
+Check-Consistency
 
 $installedTag = if (Test-Path $VERSION_STAMP) { (Get-Content $VERSION_STAMP -Raw).Trim() } else { "" }
 
@@ -361,8 +388,6 @@ if ($installedTag -eq $RELEASE_TAG -and $MODE -ne "binary") {
   ok "已是最新版 ($RELEASE_TAG)，无需更新"
   exit 0
 } else {
-  # D4 条件 7: 下载前来源/版本一致性阻断
-  Check-Consistency
   if ($installedTag) {
     info "已安装: $installedTag -> 更新至 $RELEASE_TAG"
     # 更新前备份旧二进制，用于回退（D4 条件 10）
