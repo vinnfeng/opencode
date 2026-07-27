@@ -44,6 +44,31 @@ warn() { echo -e "${YELLOW}⚠️   $*${RESET}"; }
 err()  { echo -e "${RED}❌  $*${RESET}"; exit 1; }
 info() { echo -e "${BLUE}➜   $*${RESET}"; }
 
+# ── D4 缺陷2: 可信来源白名单校验 ────────────────────────────
+# 校验 $url 域名在可信白名单（仅 github.com/vinnfeng/*），否则 err 阻断
+assert_trusted_source() {
+  local url="$1"
+  case "$url" in
+    https://raw.githubusercontent.com/vinnfeng/*|\
+    https://github.com/vinnfeng/*)
+      return 0 ;;
+    *)
+      err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/*）" ;;
+  esac
+}
+
+# ── D4 缺陷5: 不可变 ref 校验（禁止浮动分支作一键执行输入）───
+# 校验 $ref 非浮动分支名（main/master/dev/develop/latest/HEAD/空），须固定 tag 或 commit SHA
+assert_immutable_ref() {
+  local ref="${1:-}"
+  case "$ref" in
+    main|master|dev|develop|latest|HEAD|'')
+      err "拒绝浮动 ref（D4 缺陷5）: '$ref'（须用固定 tag 或 commit SHA，不得用 main/dev/latest）" ;;
+    *)
+      return 0 ;;
+  esac
+}
+
 # ── D4: SHA256 验证（条件 4）─────────────────────────────────
 # 取 $url 的 .sha256 校验文件，对比 $file 实际哈希；不存在/不匹配 err 阻断
 verify_sha256() {
@@ -247,6 +272,12 @@ for cmd in node git curl; do
   command -v "$cmd" &>/dev/null || err "缺少依赖: $cmd（请先安装）"
 done
 command -v sha256sum &>/dev/null || err "缺少依赖: sha256sum（D4 条件 4 校验所需）"
+
+# ── D4 缺陷2/5: 安装入口白名单 + 不可变 ref 校验（执行任何下载前）──
+assert_trusted_source "$SETUP_URL"
+assert_trusted_source "$RELEASE_BASE"
+assert_trusted_source "$CONFIG_REPO"
+assert_immutable_ref "$RELEASE_TAG"
 
 # ── only-keys 模式 ────────────────────────────────────────────
 if [ "$MODE" = "keys" ]; then
