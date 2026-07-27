@@ -64,6 +64,10 @@ function Run-Matrix {
   Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/x%5c..%5cattacker" $false
   Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/%252e%252e/attacker" $false
   Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/x\..\attacker"     $false
+  # defect 2 round4: multi-level encoded % bypasses (reject ANY % in trusted URL)
+  Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/%25%32%65%25%32%65/attacker" $false
+  Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/%25252e%25252e/attacker" $false
+  Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/x%255c..%255cattacker" $false
   # defect 5: immutable ref (whitelist 40hex SHA or vX.Y.Z[-pre]; blacklist gaps must reject)
   Expect 'Assert-ImmutableRef' "de6a37e8ffcf1f73ebe0aa1fb162794d1b965e7c"       $true
   Expect 'Assert-ImmutableRef' "v1.3.17-kaiqu.3"                                $true
@@ -81,6 +85,10 @@ function Run-Matrix {
   Expect 'Assert-ImmutableRef' "v1.2.3-a..b"                                    $false
   Expect 'Assert-ImmutableRef' "v1.2.3-"                                        $false
   Expect 'Assert-ImmutableRef' "v1.2.3-a."                                      $false
+  # defect 5 round4: strict SemVer rejects leading zeros in major/minor/patch/prerelease
+  Expect 'Assert-ImmutableRef' "v01.2.3"                                        $false
+  Expect 'Assert-ImmutableRef' "v1.02.3"                                        $false
+  Expect 'Assert-ImmutableRef' "v1.2.3-01"                                      $false
   # defect 3: commit sha (strict 40hex; reject tag/short-sha/branch)
   Expect 'Assert-CommitSha' "de6a37e8ffcf1f73ebe0aa1fb162794d1b965e7c"          $true
   Expect 'Assert-CommitSha' "v1.3.17-kaiqu.3"                                   $false
