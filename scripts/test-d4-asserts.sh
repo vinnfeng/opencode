@@ -244,6 +244,69 @@ expect_verify_pass() {
   fi
 }
 
+# ── 七审：端到端控制流（提取整个安装块，含 existing-version if 分支 + verify 调用位置）──
+# 铸言六审：Part C 只调 verify 函数，未覆盖 if 分支后 verify 是否真被调用（调用位置回归）
+extract_install_block() {
+  sed -n '/^OPENCODE_NPM_PKG=/,/^verify_opencode_via_path$/p' "$1"
+}
+
+# 用 mock 环境跑整个安装块（OPENCODE_NPM_PKG 赋值 → existing-version if/else → verify 调用）
+# 返回退出码（0=通过，1=被拒）
+run_install_block_e2e() {
+  local npm_prefix="$1" oc_abspath="$2" oc_ver="$3"
+  local mockdir oc_dir verify_fn install_block
+  mockdir="$(mktemp -d)"
+  oc_dir="$(dirname "$oc_abspath")"
+  mkdir -p "$oc_dir" "$mockdir"
+  # mock npm：config get prefix 返回受控值；install/uninstall/list no-op rc=0
+  cat > "$mockdir/npm" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  "config get prefix") printf '%s' "$npm_prefix" ;;
+  install*|uninstall*|list*) exit 0 ;;
+esac
+EOF
+  chmod +x "$mockdir/npm"
+  # mock opencode：仅响应 --version
+  cat > "$oc_abspath" <<EOF
+#!/usr/bin/env bash
+[ "\$1" = "--version" ] && printf '%s\n' "$oc_ver"
+EOF
+  chmod +x "$oc_abspath"
+  verify_fn="$(extract_verify_fn "$COMM_SH")"
+  install_block="$(extract_install_block "$COMM_SH")"
+  # 子 shell 注入 mock PATH + stub（ok/warn/info no-op，err exit 1），跑 verify 函数 + 整个安装块
+  PATH="$mockdir:$oc_dir:$PATH" bash -c '
+    set +e
+    ok(){ :; }; warn(){ :; }; info(){ :; }; err(){ exit 1; }
+    '"$verify_fn"'
+    '"$install_block"'
+  ' >/dev/null 2>&1
+  local rc=$?
+  rm -rf "$mockdir" "$oc_abspath"
+  rmdir "$oc_dir" 2>/dev/null || true
+  return $rc
+}
+
+expect_e2e_reject() {
+  local label="$1" npm_prefix="$2" oc_abspath="$3" oc_ver="$4"
+  if run_install_block_e2e "$npm_prefix" "$oc_abspath" "$oc_ver"; then
+    printf '  FAIL  %-46s -> pass (expect reject)\n' "$label"
+    FAILS=$((FAILS+1))
+  else
+    printf '  PASS  %-46s -> reject\n' "$label"
+  fi
+}
+expect_e2e_pass() {
+  local label="$1" npm_prefix="$2" oc_abspath="$3" oc_ver="$4"
+  if run_install_block_e2e "$npm_prefix" "$oc_abspath" "$oc_ver"; then
+    printf '  PASS  %-46s -> pass\n' "$label"
+  else
+    printf '  FAIL  %-46s -> reject (expect pass)\n' "$label"
+    FAILS=$((FAILS+1))
+  fi
+}
+
 # 构造临时 npm prefix 根（真实可写目录）
 MOCK_ROOT="$(mktemp -d)"
 NPM_PREFIX_GOOD="$MOCK_ROOT/npm"
@@ -263,6 +326,23 @@ expect_verify_reject "defect4 ⑤ sibling prefix-evil" \
   "$NPM_PREFIX_GOOD" "$MOCK_ROOT/npm-evil/bin/opencode" "1.18.7"
 # sanity: 正常位置 + 正确版本 → 通过（防误拒）
 expect_verify_pass "defect4 sanity normal install" \
+  "$NPM_PREFIX_GOOD" "$NPM_PREFIX_GOOD/bin/opencode" "1.18.7"
+
+# 七审修复：六审清洗 bug 覆盖缺口——空格/Tab 后缀 reject（round-5 只测连字符后缀）
+# 六审 bash:89 原 sed s/[[:space:]].*$// 把 "1.18.7 evil" 清洗成 "1.18.7" 放行（假阴性）
+expect_verify_reject "defect4 ③a space suffix '1.18.7 evil'" \
+  "$NPM_PREFIX_GOOD" "$NPM_PREFIX_GOOD/bin/opencode" "1.18.7 evil"
+expect_verify_reject "defect4 ③b 'opencode 1.18.7 evil'" \
+  "$NPM_PREFIX_GOOD" "$NPM_PREFIX_GOOD/bin/opencode" "opencode 1.18.7 evil"
+expect_verify_reject "defect4 ③c tab suffix '1.18.7<TAB>evil'" \
+  "$NPM_PREFIX_GOOD" "$NPM_PREFIX_GOOD/bin/opencode" "$(printf '1.18.7\tevil')"
+
+# 七审：端到端控制流——existing-version then 分支仍调 verify 抓 evil（防调用位置回归）
+# 模拟 opencode 自报 "1.18.7 evil"（宽松 EXISTING_VER 取 1.18.7 进 then 跳过 install），
+# verify 仍应抓出 evil 后缀拒绝；若 verify 调用被误删（回归），then 分支直接 ok rc=0 → 用例 fail
+expect_e2e_reject "defect4 e2e then-branch verify (1.18.7 evil)" \
+  "$NPM_PREFIX_GOOD" "$NPM_PREFIX_GOOD/bin/opencode" "1.18.7 evil"
+expect_e2e_pass "defect4 e2e then-branch sanity (1.18.7)" \
   "$NPM_PREFIX_GOOD" "$NPM_PREFIX_GOOD/bin/opencode" "1.18.7"
 
 rm -rf "$MOCK_ROOT"

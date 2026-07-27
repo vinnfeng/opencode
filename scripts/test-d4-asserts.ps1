@@ -156,6 +156,54 @@ function Run-VerifyCase {
   }
 }
 
+# ── 七审：端到端控制流（提取整个安装块，含 existing-version if 分支 + verify 调用位置）──
+# 铸言六审：Part B 只调 verify 函数，未覆盖 if 分支后 verify 是否真被调用（调用位置回归）
+function Get-InstallBlock {
+  param([string]$file)
+  $errs = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errs)
+  if ($errs) { Write-Host "PARSE ERR in $file" -ForegroundColor Red; $errs | ForEach-Object { Write-Host $_.Message }; exit 2 }
+  $stmts = $ast.EndBlock.Statements
+  $startStmt = $null; $endStmt = $null
+  foreach ($s in $stmts) {
+    if ($s.Extent.Text -match '^\$OPENCODE_NPM_PKG') { $startStmt = $s }
+    if ($s.Extent.Text -match '^Verify-OpencodeViaPath') { $endStmt = $s; break }
+  }
+  if (-not $startStmt -or -not $endStmt) { Write-Host "EXTRACT FAIL: install block not found in $file" -ForegroundColor Red; exit 2 }
+  $allText = [System.IO.File]::ReadAllText($file)
+  return $allText.Substring($startStmt.Extent.StartOffset, $endStmt.Extent.EndOffset - $startStmt.Extent.StartOffset)
+}
+
+function Run-InstallE2E {
+  param([string]$Label, [bool]$ShouldReject, [string]$NpmPrefix, [string]$OcAbsPath, [string]$OcVer)
+  $ocDir = Split-Path $OcAbsPath -Parent
+  New-Item -ItemType Directory -Force -Path $ocDir | Out-Null
+  $cmdContent = "@echo off`r`necho $OcVer`r`n"
+  [System.IO.File]::WriteAllText($OcAbsPath, $cmdContent)
+  $global:_MockNpmPrefix = $NpmPrefix
+  Remove-Item Function:npm -Force -ErrorAction SilentlyContinue
+  function global:npm {
+    $a = ("$args" -replace '\s+',' ')
+    if ($a -match 'config\s+get\s+prefix') { return $global:_MockNpmPrefix }
+    if ($a -match 'install|uninstall|list') { return $null }
+  }
+  $savedPath = $env:PATH
+  $env:PATH = "$ocDir;$env:PATH"
+  $script:FAILED = $null
+  $installBlock = Get-InstallBlock (Join-Path $ScriptDir "community-setup.ps1")
+  Invoke-Expression $installBlock
+  $env:PATH = $savedPath
+  Remove-Item Function:npm -Force -ErrorAction SilentlyContinue
+  Remove-Item $OcAbsPath -ErrorAction SilentlyContinue
+  $actuallyRejected = -not [string]::IsNullOrEmpty($script:FAILED)
+  if ($actuallyRejected -eq $ShouldReject) {
+    Write-Host ("  PASS  {0,-46} reject={1}" -f $Label, $actuallyRejected) -ForegroundColor Green
+  } else {
+    Write-Host ("  FAIL  {0,-46} reject={1} expect={2} [{3}]" -f $Label, $actuallyRejected, $ShouldReject, $script:FAILED) -ForegroundColor Red
+    $script:GFAIL = $script:GFAIL + 1
+  }
+}
+
 # iex Verify-OpencodeViaPath 到 SCRIPT scope（复用 err stub + ok stub）
 Invoke-Expression (Get-VerifyCode (Join-Path $ScriptDir "community-setup.ps1"))
 
@@ -167,6 +215,18 @@ Run-VerifyCase "defect4 (3) version suffix 1.18.7-evil" $true  $NpmPrefixGood (J
 Run-VerifyCase "defect4 (4) empty npm prefix"          $true  ""             (Join-Path $NpmPrefixGood "bin\opencode.cmd") "1.18.7"
 Run-VerifyCase "defect4 (5) sibling prefix-evil"       $true  $NpmPrefixGood (Join-Path $MockRoot "npm-evil\bin\opencode.cmd") "1.18.7"
 Run-VerifyCase "defect4 sanity normal install"          $false $NpmPrefixGood (Join-Path $NpmPrefixGood "bin\opencode.cmd") "1.18.7"
+
+# 七审修复：六审 bash 清洗 bug 覆盖缺口——空格/Tab 后缀 reject
+# PS 用 .Trim()+-replace 无 bash 清洗 bug（Trim 只去首尾空白），补覆盖证明空白后缀被拒
+Run-VerifyCase "defect4 (3a) space suffix 1.18.7 evil"  $true  $NpmPrefixGood (Join-Path $NpmPrefixGood "bin\opencode.cmd") "1.18.7 evil"
+Run-VerifyCase "defect4 (3b) opencode 1.18.7 evil"      $true  $NpmPrefixGood (Join-Path $NpmPrefixGood "bin\opencode.cmd") "opencode 1.18.7 evil"
+# Tab 后缀：cmd echo 会把参数间 tab 折叠为空格，最终仍验证含空白后缀被拒
+Run-VerifyCase "defect4 (3c) tab suffix 1.18.7 evil"    $true  $NpmPrefixGood (Join-Path $NpmPrefixGood "bin\opencode.cmd") "1.18.7`tevil"
+
+# 七审：端到端控制流——existing-version then 分支仍调 verify 抓 evil（防调用位置回归）
+# PS 用 Trim 无清洗 bug，端到端验证 then 分支后 Verify-OpencodeViaPath 真被调用
+Run-InstallE2E "defect4 e2e then-branch (1.18.7 evil)"   $true  $NpmPrefixGood (Join-Path $NpmPrefixGood "bin\opencode.cmd") "1.18.7 evil"
+Run-InstallE2E "defect4 e2e then-branch sanity (1.18.7)" $false $NpmPrefixGood (Join-Path $NpmPrefixGood "bin\opencode.cmd") "1.18.7"
 
 Remove-Item -Recurse -Force $MockRoot -ErrorAction SilentlyContinue
 
