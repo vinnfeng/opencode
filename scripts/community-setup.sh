@@ -84,12 +84,15 @@ verify_opencode_via_path() {
     "${npm_prefix}/"*) : ;;  # 正确：以 prefix/ 开头
     *) err "opencode 二进制不在 npm global prefix 下（D4 缺陷4 五审）: $installed_bin（期望在 ${npm_prefix}/ 下，拒兄弟路径 ${npm_prefix}-evil）" ;;
   esac
-  # ③ 版本严格等值：去前导非数字 + 尾部空白后整行严格匹配 X.Y.Z，拒 1.18.7-evil 后缀
+  # ③ 版本严格等值：去前导非数字 + 仅 trim 尾部空白后整行严格匹配 X.Y.Z
+  # 六审修复：第二段原 s/[[:space:]].*$// 会删除第一个空白及之后所有内容，把 "1.18.7 evil"
+  #   清洗成 "1.18.7" 放行（假阴性）。改为 s/[[:space:]]+$// 只 trim 尾部空白，
+  #   保留 "1.18.7 evil" / "1.18.7<TAB>evil" 中间空白，由后续整行 grep 拒后缀
   installed_ver_raw="$("$installed_bin" --version 2>/dev/null | head -1 | tr -d '\r' || true)"
-  installed_ver="$(printf '%s' "$installed_ver_raw" | sed -E 's/^[[:space:]]*[^0-9]*//; s/[[:space:]].*$//' || true)"
+  installed_ver="$(printf '%s' "$installed_ver_raw" | sed -E 's/^[[:space:]]*[^0-9]*//; s/[[:space:]]+$//' || true)"
   [ -n "$installed_ver" ] || err "opencode PATH 命令无版本输出（D4 缺陷4 五审）"
   printf '%s' "$installed_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
-    || err "opencode 版本格式异常或含后缀（D4 缺陷4 五审）: '$installed_ver'（拒 1.18.7-evil）"
+    || err "opencode 版本格式异常或含后缀（D4 缺陷4 六审）: '$installed_ver'（拒 1.18.7-evil / 1.18.7 evil / Tab 后缀）"
   [ "$installed_ver" = "1.18.7" ] \
     || err "opencode PATH 实际版本 ($installed_ver) 与锁定 (1.18.7) 不符（D4 缺陷4 五审）"
   ok "opencode PATH 校验通过：版本 $installed_ver，位于 $installed_bin"
