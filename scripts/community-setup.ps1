@@ -25,13 +25,23 @@ function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
 function info { param($m) Write-Host "➜   $m" -ForegroundColor Cyan }
 function err  { param($m) Write-Host "❌  $m" -ForegroundColor Red; exit 1 }
 
-# ── D4 缺陷2: 可信来源白名单校验（硬化：拒 dot-segment 绕过）──
+# ── D4 缺陷2: 可信来源白名单校验（硬化：decode+规范化+拒 dot-segment 变体）──
 function Assert-TrustedSource { param($url)
   if (-not ($url -like "https://github.com/vinnfeng/*" -or $url -like "https://raw.githubusercontent.com/vinnfeng/*")) {
     err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/* 或 raw.githubusercontent.com/vinnfeng/*）"
   }
-  if ($url -match '/(\.\.?)(/|$)|%2[eE]') {
-    err "来源含 dot-segment/编码点（D4 缺陷2 路径穿越）: $url"
+  # decode URL 编码（含双重编码循环 %252e->%2e->.）+ 反斜杠转斜杠 + 拒 dot-segment 变体
+  $decoded = $url; $prev = ""
+  while ($decoded -ne $prev) {
+    $prev = $decoded
+    $decoded = $decoded -replace '%2[eE]', '.'
+    $decoded = $decoded -replace '%2[fF]', '/'
+    $decoded = $decoded -replace '%5[cC]', '\'
+    $decoded = $decoded -replace '%25', '%'
+  }
+  $decoded = $decoded -replace '\\', '/'
+  if ($decoded -match '/(\.\.?)(/|$)') {
+    err "来源含 dot-segment/编码/反斜杠变体（D4 缺陷2 路径穿越）: $url"
   }
 }
 # ── D4 缺陷5: 不可变 ref 校验（白名单：仅 40hex SHA 或 vX.Y.Z[-pre] tag）──

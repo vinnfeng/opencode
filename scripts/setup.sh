@@ -44,17 +44,24 @@ warn() { echo -e "${YELLOW}⚠️   $*${RESET}"; }
 err()  { echo -e "${RED}❌  $*${RESET}"; exit 1; }
 info() { echo -e "${BLUE}➜   $*${RESET}"; }
 
-# ── D4 缺陷2: 可信来源白名单校验（硬化：拒 dot-segment 绕过）──
-# 严格前缀匹配 https://<host>/vinnfeng/（尾斜杠防 vinnfengfoo 前缀绕过），
-# 并拒绝路径中任何 dot-segment（../  /./  编码 %2e）防 owner 路径穿越到 attacker 仓。
+# ── D4 缺陷2: 可信来源白名单校验（硬化：decode+规范化+拒 dot-segment 变体）──
+# 严格前缀匹配 https://<host>/vinnfeng/（尾斜杠防 vinnfengfoo 前缀绕过）。
+# 先 URL decode（%2e/%2f/%5c/%25，循环解码双重编码 %252e->%2e->.）+ 反斜杠转斜杠，
+# 再拒任何 dot-segment（../ /./ 及编码/反斜杠变体）防 owner 路径穿越到 attacker 仓。
 assert_trusted_source() {
-  local url="$1"
+  local url="$1" decoded prev
   case "$url" in
     https://github.com/vinnfeng/*|https://raw.githubusercontent.com/vinnfeng/*) : ;;
     *) err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/* 或 raw.githubusercontent.com/vinnfeng/*）" ;;
   esac
-  if printf '%s' "$url" | grep -qE '/(\.\.?)(/|$)|%2e|%2E'; then
-    err "来源含 dot-segment/编码点（D4 缺陷2 路径穿越）: $url"
+  decoded="$url"; prev=""
+  while [ "$decoded" != "$prev" ]; do
+    prev="$decoded"
+    decoded="$(printf '%s' "$decoded" | sed 's/%2[eE]/./g; s/%2[fF]/\//g; s/%5[cC]/\\/g; s/%25/%/g')"
+  done
+  decoded="$(printf '%s' "$decoded" | tr '\\' '/')"
+  if printf '%s' "$decoded" | grep -qE '/(\.\.?)(/|$)'; then
+    err "来源含 dot-segment/编码/反斜杠变体（D4 缺陷2 路径穿越）: $url"
   fi
 }
 
