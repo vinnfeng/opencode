@@ -347,6 +347,90 @@ expect_e2e_pass "defect4 e2e then-branch sanity (1.18.7)" \
 
 rm -rf "$MOCK_ROOT"
 
+# ═════════════════════════════════════════════════════════════
+# Part D: verify-release.sh 门禁防伪造动态测试（九修阻断1）
+# 铸言八审 HIGH: 旧版 verify-release.sh 只累计 checked==4 + basename(path) 取 URL，
+# mock 放 4 条相同 setup.sh 仍 rc=0 宣称 4/4 PASS。新版 allowlist + 严格解析 + 去重 + 缺失。
+# source verify-release.sh（main 因 BASH_SOURCE guard 不执行）→ 覆盖 fetch_and_hash 为无网 stub
+# → 喂构造 manifest，验证五类阻断（duplicate/missing/unknown/extra-field/hash-mismatch）+ sanity。
+# ═════════════════════════════════════════════════════════════
+echo ""
+echo "=== Part D: verify-release.sh 门禁防伪造（九修阻断1 五类动态）==="
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/verify-release.sh"
+FIXED_HASH="$(printf 'a%.0s' {1..64})"     # stub fetch 固定返回
+MISMATCH_HASH="$(printf 'b%.0s' {1..64})"  # hash-mismatch 用例声明值
+fetch_and_hash() { printf '%s' "$FIXED_HASH"; }
+
+run_vrf_case() {
+  local label="$1" manifest="$2" expect="$3" reason="${4:-}"
+  local out rc actual ok
+  out="$(printf '%s\n' "$manifest" | process_manifest "http://test.invalid/base" "$ALLOWED_PATHS" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then actual=pass; else actual=fail; fi
+  ok=1
+  [ "$actual" = "$expect" ] || ok=0
+  if [ -n "$reason" ]; then
+    printf '%s' "$out" | grep -qF "$reason" || ok=0
+  fi
+  if [ "$ok" -eq 1 ]; then
+    printf '  PASS  %-46s -> %s\n' "$label" "$actual"
+  else
+    printf '  FAIL  %-46s -> %s (expect %s%s) out=%s\n' "$label" "$actual" "$expect" "${reason:+, want: $reason}" "$out"
+    FAILS=$((FAILS+1))
+  fi
+}
+
+# 用例1 duplicate: setup.sh 出现两次 → 拒（铸言攻击向量：4×相同路径）
+run_vrf_case "blocker1 duplicate setup.sh" \
+  "$FIXED_HASH  scripts/setup.sh
+$FIXED_HASH  scripts/setup.sh
+$FIXED_HASH  scripts/setup.ps1
+$FIXED_HASH  scripts/community-setup.sh
+$FIXED_HASH  scripts/community-setup.ps1" \
+  fail "重复路径"
+
+# 用例2 missing: 只含 3 条 → 拒
+run_vrf_case "blocker1 missing community-setup.ps1" \
+  "$FIXED_HASH  scripts/setup.sh
+$FIXED_HASH  scripts/setup.ps1
+$FIXED_HASH  scripts/community-setup.sh" \
+  fail "缺失路径"
+
+# 用例3 unknown: scripts/evil.sh 不在 allowlist → 拒
+run_vrf_case "blocker1 unknown path scripts/evil.sh" \
+  "$FIXED_HASH  scripts/setup.sh
+$FIXED_HASH  scripts/setup.ps1
+$FIXED_HASH  scripts/community-setup.sh
+$FIXED_HASH  scripts/evil.sh" \
+  fail "未知路径"
+
+# 用例4 extra-field: setup.sh 行尾多 EXTRA → 行非法 → 拒
+run_vrf_case "blocker1 extra field after path" \
+  "$FIXED_HASH  scripts/setup.sh  EXTRA
+$FIXED_HASH  scripts/setup.ps1
+$FIXED_HASH  scripts/community-setup.sh
+$FIXED_HASH  scripts/community-setup.ps1" \
+  fail "非法 manifest 行"
+
+# 用例5 hash-mismatch: setup.sh 声明 MISMATCH_HASH 但 fetch 返回 FIXED_HASH → 拒
+run_vrf_case "blocker1 hash mismatch (setup.sh)" \
+  "$MISMATCH_HASH  scripts/setup.sh
+$FIXED_HASH  scripts/setup.ps1
+$FIXED_HASH  scripts/community-setup.sh
+$FIXED_HASH  scripts/community-setup.ps1" \
+  fail "expected"
+
+# sanity pass: 四路径各一次 + hash 全匹配 → 通过（防误拒）
+run_vrf_case "blocker1 sanity all-four correct" \
+  "$FIXED_HASH  scripts/setup.sh
+$FIXED_HASH  scripts/setup.ps1
+$FIXED_HASH  scripts/community-setup.sh
+$FIXED_HASH  scripts/community-setup.ps1" \
+  pass ""
+
+unset -f fetch_and_hash 2>/dev/null || true
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "=== ALL PASS (D4 四载体 assert 回归) ==="
