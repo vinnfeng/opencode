@@ -38,7 +38,7 @@ fi
 
 # 2. 逐条对比（仅解析 hash 行：64hex + 两空格 + path）
 fail=0; checked=0
-while IFS= read -r expected path _rest; do
+while read -r expected path _rest; do
   case "$expected" in
     ''|'#'*) continue ;;            # 空行 / 注释行跳过
     *[!0-9a-f]*) echo "WARN: 非法 hash 行跳过: $expected $path" >&2; continue ;;
