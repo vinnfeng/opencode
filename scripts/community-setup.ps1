@@ -48,7 +48,7 @@ function Assert-TrustedSource { param($url)
 function Assert-ImmutableRef { param($ref)
   if ([string]::IsNullOrEmpty($ref)) { err "拒绝空 ref（D4 缺陷5）" }
   if ($ref -cmatch '^[0-9a-f]{40}$') { return }
-  if ($ref -cmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$') { return }
+  if ($ref -cmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$') { return }
   err "拒绝浮动/非法 ref（D4 缺陷5）: '$ref'（仅允许 40位hex SHA 或 vX.Y.Z[-pre] tag；禁 main/master/dev/release/office-windows/latest/HEAD 等）"
 }
 # ── D4 缺陷3: CONFIG_REF 必须 40位hex commit SHA（防误填分支名/tag）──
@@ -135,17 +135,28 @@ Assert-CommitSha $CONFIG_REF
 # （铸言复核：原 npm install -g opencode-ai 隐式 @latest，无完整性校验，N/A 标注不合理）
 $OPENCODE_NPM_PKG = "opencode-ai@1.18.7"
 $NPM_REGISTRY     = "https://registry.npmjs.org"
+$existingVer = ""
 if (Get-Command opencode -ErrorAction SilentlyContinue) {
-  ok "opencode 已安装"
+  $verOut = & opencode --version 2>$null
+  if ($verOut -match '([0-9]+\.[0-9]+\.[0-9]+)') { $existingVer = $Matches[1] }
+}
+# 缺陷5：已存在 opencode 必须校验版本，旧版绕过 1.18.7 锁定 -> 卸载重装+校验
+if ($existingVer -eq "1.18.7") {
+  ok "opencode 已是锁定版本: $existingVer"
 } else {
-  info "安装 $OPENCODE_NPM_PKG (官方版，固定 registry)..."
+  if ($existingVer) {
+    warn "opencode 已存在 ($existingVer) 非 1.18.7，卸载重装（D4 缺陷5：旧版绕过锁定）"
+    & npm uninstall -g opencode-ai --registry=$NPM_REGISTRY 2>$null | Out-Null
+  } else {
+    info "未检测到 opencode，安装 $OPENCODE_NPM_PKG (官方版，固定 registry)..."
+  }
   & npm install -g $OPENCODE_NPM_PKG --registry=$NPM_REGISTRY
   if ($LASTEXITCODE -ne 0) { err "安装失败，请检查 npm 权限/registry" }
-  # 缺陷4：装后校验实际版本，防止 registry 返回其他版本/被替换
+  # 缺陷5：装后校验实际版本，防止 registry 返回其他版本/被替换
   $installedLine = & npm list -g opencode-ai --depth=0 2>$null | Select-String -Pattern 'opencode-ai@([0-9.]+)' | Select-Object -First 1
   $installedVer = if ($installedLine) { $installedLine.Matches[0].Groups[1].Value } else { "" }
-  if (-not $installedVer) { err "opencode-ai 安装后无法确认版本（D4 缺陷4）" }
-  if ($installedVer -ne "1.18.7") { err "opencode-ai 实际版本 ($installedVer) 与锁定 (1.18.7) 不符（D4 缺陷4）" }
+  if (-not $installedVer) { err "opencode-ai 安装后无法确认版本（D4 缺陷5）" }
+  if ($installedVer -ne "1.18.7") { err "opencode-ai 实际版本 ($installedVer) 与锁定 (1.18.7) 不符（D4 缺陷5）" }
   ok "opencode 安装完成 ($installedVer)"
 }
 

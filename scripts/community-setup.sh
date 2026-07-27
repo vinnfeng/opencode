@@ -49,7 +49,7 @@ assert_immutable_ref() {
   local ref="${1:-}"
   [ -n "$ref" ] || err "拒绝空 ref（D4 缺陷5）"
   printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$' && return 0
-  printf '%s' "$ref" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' && return 0
+  printf '%s' "$ref" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$' && return 0
   err "拒绝浮动/非法 ref（D4 缺陷5）: '$ref'（仅允许 40位hex SHA 或 vX.Y.Z[-pre] tag；禁 main/master/dev/release/office-windows/latest/HEAD 等）"
 }
 # ── D4 缺陷3: CONFIG_REF 必须 40位hex commit SHA（防误填分支名/tag）──
@@ -143,16 +143,27 @@ assert_commit_sha "$CONFIG_REF"
 OPENCODE_NPM_PKG="opencode-ai@1.18.7"
 NPM_REGISTRY="https://registry.npmjs.org"
 if command -v opencode &>/dev/null; then
-  ok "opencode 已安装: $(opencode --version 2>/dev/null || echo 'ok')"
+  EXISTING_VER="$(opencode --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
 else
-  info "安装 $OPENCODE_NPM_PKG (官方版，固定 registry)..."
+  EXISTING_VER=""
+fi
+# 缺陷5：已存在 opencode 必须校验版本，旧版绕过 1.18.7 锁定 -> 卸载重装+校验
+if [ "$EXISTING_VER" = "1.18.7" ]; then
+  ok "opencode 已是锁定版本: $EXISTING_VER"
+else
+  if [ -n "$EXISTING_VER" ]; then
+    warn "opencode 已存在 ($EXISTING_VER) 非 1.18.7，卸载重装（D4 缺陷5：旧版绕过锁定）"
+    npm uninstall -g opencode-ai --registry="$NPM_REGISTRY" 2>/dev/null || true
+  else
+    info "未检测到 opencode，安装 $OPENCODE_NPM_PKG (官方版，固定 registry)..."
+  fi
   npm install -g "$OPENCODE_NPM_PKG" --registry="$NPM_REGISTRY" \
     || err "安装失败，请检查 npm 权限/registry"
-  # 缺陷4：装后校验实际版本，防止 registry 返回其他版本/被替换
+  # 缺陷5：装后校验实际版本，防止 registry 返回其他版本/被替换
   INSTALLED_VER="$(npm list -g opencode-ai --depth=0 2>/dev/null | grep -oE 'opencode-ai@[0-9.]+' | head -1 | cut -d@ -f2 || true)"
-  [ -n "$INSTALLED_VER" ] || err "opencode-ai 安装后无法确认版本（D4 缺陷4）"
+  [ -n "$INSTALLED_VER" ] || err "opencode-ai 安装后无法确认版本（D4 缺陷5）"
   if [ "$INSTALLED_VER" != "1.18.7" ]; then
-    err "opencode-ai 实际版本 ($INSTALLED_VER) 与锁定 (1.18.7) 不符（D4 缺陷4）"
+    err "opencode-ai 实际版本 ($INSTALLED_VER) 与锁定 (1.18.7) 不符（D4 缺陷5）"
   fi
   ok "opencode 安装完成 ($INSTALLED_VER)"
 fi
