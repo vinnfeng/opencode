@@ -27,6 +27,23 @@ warn() { echo -e "${YELLOW}⚠️   $*${RESET}"; }
 err()  { echo -e "${RED}❌  $*${RESET}"; exit 1; }
 info() { echo -e "${BLUE}➜   $*${RESET}"; }
 
+# ── D4 缺陷2: 可信来源白名单校验 ────────────────────────────
+assert_trusted_source() {
+  local url="$1"
+  case "$url" in
+    https://raw.githubusercontent.com/vinnfeng/*|https://github.com/vinnfeng/*) return 0 ;;
+    *) err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/*）" ;;
+  esac
+}
+# ── D4 缺陷5: 不可变 ref 校验（禁止浮动分支作一键执行输入）───
+assert_immutable_ref() {
+  local ref="${1:-}"
+  case "$ref" in
+    main|master|dev|develop|latest|HEAD|'') err "拒绝浮动 ref（D4 缺陷5）: '$ref'（须固定 tag 或 commit SHA）" ;;
+    *) return 0 ;;
+  esac
+}
+
 # ── 工具函数：从 .keys 读取 key ──────────────────────────────
 read_key() {
   local name="$1"
@@ -98,6 +115,11 @@ echo ""
 for cmd in git curl node npm; do
   command -v "$cmd" &>/dev/null || err "缺少依赖: $cmd"
 done
+
+# ── D4 缺陷2/5: 白名单 + 不可变 ref 校验（任何下载/克隆前）──
+assert_trusted_source "$COMMUNITY_URL"
+assert_trusted_source "$CONFIG_REPO"
+assert_immutable_ref "$RELEASE_TAG"
 
 # ── 2. 安装官方 opencode ──────────────────────────────────────
 # D4 说明：社区版二进制走 npm 渠道（npm 自带包签名校验），不走 release 资产下载，
