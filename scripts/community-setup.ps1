@@ -25,6 +25,19 @@ function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
 function info { param($m) Write-Host "➜   $m" -ForegroundColor Cyan }
 function err  { param($m) Write-Host "❌  $m" -ForegroundColor Red; exit 1 }
 
+# ── D4 缺陷2: 可信来源白名单校验 ────────────────────────────
+function Assert-TrustedSource { param($url)
+  if ($url -like "https://raw.githubusercontent.com/vinnfeng/*" -or $url -like "https://github.com/vinnfeng/*") { return }
+  err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/*）"
+}
+# ── D4 缺陷5: 不可变 ref 校验（禁止浮动分支作一键执行输入）───
+function Assert-ImmutableRef { param($ref)
+  $floating = @("main", "master", "dev", "develop", "latest", "HEAD", "")
+  if ($floating -contains $ref) {
+    err "拒绝浮动 ref（D4 缺陷5）: '$ref'（须固定 tag 或 commit SHA）"
+  }
+}
+
 # ── 工具函数：从 .keys 读取 key ──────────────────────────────
 function Read-Key { param($name)
   if (Test-Path $KEYS_FILE) {
@@ -91,6 +104,11 @@ Write-Host ""
 foreach ($cmd in @("git", "node", "npm")) {
   if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { err "缺少依赖: $cmd" }
 }
+
+# ── D4 缺陷2/5: 白名单 + 不可变 ref 校验（任何下载/克隆前）──
+Assert-TrustedSource $COMMUNITY_URL
+Assert-TrustedSource $CONFIG_REPO
+Assert-ImmutableRef $RELEASE_TAG
 
 # ── 2. 安装官方 opencode ──────────────────────────────────────
 # D4 说明：社区版二进制走 npm 渠道（npm 自带包签名校验），不走 release 资产下载，

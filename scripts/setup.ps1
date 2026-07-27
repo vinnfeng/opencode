@@ -49,6 +49,19 @@ function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
 function info { param($m) Write-Host "➜   $m" -ForegroundColor Cyan }
 function err  { param($m) Write-Host "❌  $m" -ForegroundColor Red; exit 1 }
 
+# ── D4 缺陷2: 可信来源白名单校验 ────────────────────────────
+function Assert-TrustedSource { param($url)
+  if ($url -like "https://raw.githubusercontent.com/vinnfeng/*" -or $url -like "https://github.com/vinnfeng/*") { return }
+  err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/*）"
+}
+# ── D4 缺陷5: 不可变 ref 校验（禁止浮动分支作一键执行输入）───
+function Assert-ImmutableRef { param($ref)
+  $floating = @("main", "master", "dev", "develop", "latest", "HEAD", "")
+  if ($floating -contains $ref) {
+    err "拒绝浮动 ref（D4 缺陷5）: '$ref'（须固定 tag 或 commit SHA，不得用 main/dev/latest）"
+  }
+}
+
 # ── D4: SHA256 验证（条件 4）─────────────────────────────────
 # 取 $url 的 .sha256 校验文件，对比 $file 实际哈希；不存在/不匹配 err 阻断
 function Verify-Sha256 { param($url, $file)
@@ -286,6 +299,12 @@ if ($MODE -eq "rollback") {
 
 # ── 检查依赖 ──────────────────────────────────────────────────
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { err "缺少依赖: git（请先安装 Git for Windows）" }
+
+# ── D4 缺陷2/5: 安装入口白名单 + 不可变 ref 校验（任何下载/克隆前）──
+Assert-TrustedSource $SETUP_URL
+Assert-TrustedSource $RELEASE_BASE
+Assert-TrustedSource $CONFIG_REPO
+Assert-ImmutableRef $RELEASE_TAG
 
 # ── full 模式：克隆/更新配置 + 设置 key ──────────────────────
 if ($MODE -eq "full") {
