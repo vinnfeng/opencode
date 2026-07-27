@@ -1,4 +1,4 @@
-# D4 assert regression test - PowerShell carriers (setup.ps1 + community-setup.ps1)
+﻿# D4 assert regression test - PowerShell carriers (setup.ps1 + community-setup.ps1)
 # Zhuyan engineering review feedback: add 4-carrier assert regression tests.
 #
 # Uses AST to extract the REAL Assert-* functions from each .ps1 file,
@@ -102,6 +102,73 @@ Invoke-Expression (Get-AssertCode (Join-Path $ScriptDir "setup.ps1"))
 Run-Matrix "setup.ps1"
 Invoke-Expression (Get-AssertCode (Join-Path $ScriptDir "community-setup.ps1"))
 Run-Matrix "community-setup.ps1"
+
+# ═════════════════════════════════════════════════════════════
+# Part B: 动态控制流测试（缺陷4 五审）—— 执行 Verify-OpencodeViaPath
+# 覆盖 4 类绕过 + 1 sanity：①外部PATH ③1.18.7-evil suffix ④空prefix ⑤sibling-prefix
+# ═════════════════════════════════════════════════════════════
+Write-Host ""
+Write-Host "=== Part B (PS): 动态控制流测试（缺陷4 五审 Verify-OpencodeViaPath）==="
+
+# Verify 成功路径调用 ok/warn/info，补 stub（Part A 的 Assert 不需要）
+function ok   { param($m) }
+function warn { param($m) }
+function info { param($m) }
+
+function Get-VerifyCode {
+  param([string]$file)
+  $errs = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errs)
+  if ($errs) { Write-Host "PARSE ERR in $file" -ForegroundColor Red; $errs | ForEach-Object { Write-Host $_.Message }; exit 2 }
+  $funcs = $ast.FindAll({
+    param($node)
+    ($node -is [System.Management.Automation.Language.FunctionDefinitionAst]) -and
+    ($node.Name -eq 'Verify-OpencodeViaPath')
+  }, $true)
+  if (-not $funcs) { Write-Host "EXTRACT FAIL: Verify-OpencodeViaPath not in $file" -ForegroundColor Red; exit 2 }
+  return $funcs[0].Extent.Text
+}
+
+function Run-VerifyCase {
+  param([string]$Label, [bool]$ShouldReject, [string]$NpmPrefix, [string]$OcAbsPath, [string]$OcVer)
+  # 创建 opencode.cmd（Application 类型，可被 Get-Command 找到并执行）
+  $ocDir = Split-Path $OcAbsPath -Parent
+  New-Item -ItemType Directory -Force -Path $ocDir | Out-Null
+  $cmdContent = "@echo off`r`necho $OcVer`r`n"
+  [System.IO.File]::WriteAllText($OcAbsPath, $cmdContent)
+  # mock npm（global 函数优先于 PATH 上 npm.cmd），返回受控 prefix
+  $global:_MockNpmPrefix = $NpmPrefix
+  Remove-Item Function:npm -Force -ErrorAction SilentlyContinue
+  function global:npm { if (("$args" -replace '\s+',' ') -match 'config\s+get\s+prefix') { return $global:_MockNpmPrefix } }
+  $savedPath = $env:PATH
+  $env:PATH = "$ocDir;$env:PATH"
+  $script:FAILED = $null
+  & Verify-OpencodeViaPath 2>$null
+  $env:PATH = $savedPath
+  Remove-Item Function:npm -Force -ErrorAction SilentlyContinue
+  Remove-Item $OcAbsPath -ErrorAction SilentlyContinue
+  $actuallyRejected = -not [string]::IsNullOrEmpty($script:FAILED)
+  if ($actuallyRejected -eq $ShouldReject) {
+    Write-Host ("  PASS  {0,-46} reject={1}" -f $Label, $actuallyRejected) -ForegroundColor Green
+  } else {
+    Write-Host ("  FAIL  {0,-46} reject={1} expect={2} [{3}]" -f $Label, $actuallyRejected, $ShouldReject, $script:FAILED) -ForegroundColor Red
+    $script:GFAIL = $script:GFAIL + 1
+  }
+}
+
+# iex Verify-OpencodeViaPath 到 SCRIPT scope（复用 err stub + ok stub）
+Invoke-Expression (Get-VerifyCode (Join-Path $ScriptDir "community-setup.ps1"))
+
+$MockRoot = Join-Path $env:TEMP ("d4mock_" + (Get-Date -Format "yyyyMMddHHmmssfff"))
+$NpmPrefixGood = Join-Path $MockRoot "npm"
+
+Run-VerifyCase "defect4 (1) external PATH same-ver"    $true  $NpmPrefixGood (Join-Path $MockRoot "external\bin\opencode.cmd") "1.18.7"
+Run-VerifyCase "defect4 (3) version suffix 1.18.7-evil" $true  $NpmPrefixGood (Join-Path $NpmPrefixGood "bin\opencode.cmd") "1.18.7-evil"
+Run-VerifyCase "defect4 (4) empty npm prefix"          $true  ""             (Join-Path $NpmPrefixGood "bin\opencode.cmd") "1.18.7"
+Run-VerifyCase "defect4 (5) sibling prefix-evil"       $true  $NpmPrefixGood (Join-Path $MockRoot "npm-evil\bin\opencode.cmd") "1.18.7"
+Run-VerifyCase "defect4 sanity normal install"          $false $NpmPrefixGood (Join-Path $NpmPrefixGood "bin\opencode.cmd") "1.18.7"
+
+Remove-Item -Recurse -Force $MockRoot -ErrorAction SilentlyContinue
 
 Write-Host ""
 if ($script:GFAIL -eq 0) {

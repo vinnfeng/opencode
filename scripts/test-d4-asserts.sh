@@ -180,6 +180,93 @@ done
 struct_check_f "defect5 community reinstall (sh)" "$COMM_SH" '卸载重装' present
 struct_check_f "defect5 community reinstall (ps)" "$COMM_PS" '卸载重装' present
 
+# ═════════════════════════════════════════════════════════════
+# Part C: 动态控制流测试（缺陷4 五审）—— 执行 verify_opencode_via_path，不靠结构 grep
+# 覆盖五审 4 类绕过 + 1 sanity：①外部PATH ③1.18.7-evil suffix ④空prefix ⑤sibling-prefix
+# ═════════════════════════════════════════════════════════════
+echo ""
+echo "=== Part C: 动态控制流测试（缺陷4 五审 community verify_opencode_via_path）==="
+
+# 提取 verify_opencode_via_path 函数定义（真实代码，非复制）
+extract_verify_fn() {
+  sed -n '/^verify_opencode_via_path()/,/^}/p' "$1"
+}
+
+# 用 mock 环境运行 verify，返回退出码（0=通过，1=被拒）
+# 参数：$1=npm_prefix值  $2=opencode绝对路径  $3=opencode版本输出
+run_verify_mock() {
+  local npm_prefix="$1" oc_abspath="$2" oc_ver="$3"
+  local mockdir oc_dir verify_fn
+  mockdir="$(mktemp -d)"
+  oc_dir="$(dirname "$oc_abspath")"
+  mkdir -p "$oc_dir" "$mockdir"
+  # mock npm（仅响应 config get prefix）
+  cat > "$mockdir/npm" <<EOF
+#!/usr/bin/env bash
+if [ "\$*" = "config get prefix" ]; then printf '%s' "$npm_prefix"; fi
+EOF
+  chmod +x "$mockdir/npm"
+  # mock opencode（仅响应 --version）
+  cat > "$oc_abspath" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "--version" ]; then printf '%s\n' "$oc_ver"; fi
+EOF
+  chmod +x "$oc_abspath"
+  verify_fn="$(extract_verify_fn "$COMM_SH")"
+  # 子 shell 注入 mock PATH + stub（ok/warn/info no-op，err exit 1），跑真实 verify 函数
+  PATH="$mockdir:$oc_dir:$PATH" bash -c '
+    ok(){ :; }; warn(){ :; }; info(){ :; }; err(){ exit 1; }
+    '"$verify_fn"'
+    verify_opencode_via_path
+  ' >/dev/null 2>&1
+  local rc=$?
+  rm -rf "$mockdir" "$oc_abspath"
+  rmdir "$oc_dir" 2>/dev/null || true
+  return $rc
+}
+
+expect_verify_reject() {
+  local label="$1" npm_prefix="$2" oc_abspath="$3" oc_ver="$4"
+  if run_verify_mock "$npm_prefix" "$oc_abspath" "$oc_ver"; then
+    printf '  FAIL  %-46s -> pass (expect reject)\n' "$label"
+    FAILS=$((FAILS+1))
+  else
+    printf '  PASS  %-46s -> reject\n' "$label"
+  fi
+}
+expect_verify_pass() {
+  local label="$1" npm_prefix="$2" oc_abspath="$3" oc_ver="$4"
+  if run_verify_mock "$npm_prefix" "$oc_abspath" "$oc_ver"; then
+    printf '  PASS  %-46s -> pass\n' "$label"
+  else
+    printf '  FAIL  %-46s -> reject (expect pass)\n' "$label"
+    FAILS=$((FAILS+1))
+  fi
+}
+
+# 构造临时 npm prefix 根（真实可写目录）
+MOCK_ROOT="$(mktemp -d)"
+NPM_PREFIX_GOOD="$MOCK_ROOT/npm"
+mkdir -p "$NPM_PREFIX_GOOD/bin"
+
+# 用例1 ①: 同版本但位于外部 PATH（不在 npm prefix 下）→ 拒
+expect_verify_reject "defect4 ① external PATH same-ver" \
+  "$NPM_PREFIX_GOOD" "$MOCK_ROOT/external/bin/opencode" "1.18.7"
+# 用例2 ③: 同位置但版本带 suffix（1.18.7-evil）→ 拒
+expect_verify_reject "defect4 ③ version suffix 1.18.7-evil" \
+  "$NPM_PREFIX_GOOD" "$NPM_PREFIX_GOOD/bin/opencode" "1.18.7-evil"
+# 用例3 ④: npm prefix 为空（通配退化）→ 拒
+expect_verify_reject "defect4 ④ empty npm prefix" \
+  "" "$NPM_PREFIX_GOOD/bin/opencode" "1.18.7"
+# 用例4 ⑤: sibling-prefix（prefix-evil 兄弟路径）→ 拒
+expect_verify_reject "defect4 ⑤ sibling prefix-evil" \
+  "$NPM_PREFIX_GOOD" "$MOCK_ROOT/npm-evil/bin/opencode" "1.18.7"
+# sanity: 正常位置 + 正确版本 → 通过（防误拒）
+expect_verify_pass "defect4 sanity normal install" \
+  "$NPM_PREFIX_GOOD" "$NPM_PREFIX_GOOD/bin/opencode" "1.18.7"
+
+rm -rf "$MOCK_ROOT"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "=== ALL PASS (D4 四载体 assert 回归) ==="
