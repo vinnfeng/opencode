@@ -51,6 +51,41 @@ function Assert-CommitSha { param($ref)
   err "CONFIG_REF 必须 40位hex commit SHA（D4 缺陷3）: '$ref'（不得用分支名/tag）"
 }
 
+# ── D4 缺陷4 五审加固：通过 PATH 实际可执行二进制校验（不信任 npm metadata）──
+# 覆盖五审 5 子问题：①外部PATH ②Function冒充 ③1.18.7-evil suffix ④空prefix ⑤sibling-prefix
+function Verify-OpencodeViaPath {
+  # ④ npm global prefix 必须非空（空时 -notlike "*" 退化匹配任意路径）
+  $npmPrefix = & npm config get prefix 2>$null
+  $npmPrefix = "$npmPrefix".Trim()
+  if (-not $npmPrefix) { err "npm global prefix 为空，无法校验二进制位置（D4 缺陷4 五审）" }
+  # ② Get-Command 必须返回 Application/ExternalScript（拒 Function/Alias/Cmdlet）
+  $installedCmd = Get-Command opencode -ErrorAction SilentlyContinue
+  if (-not $installedCmd) { err "opencode 未在 PATH 找到（D4 缺陷4 五审）" }
+  if ($installedCmd.CommandType -ne 'Application' -and $installedCmd.CommandType -ne 'ExternalScript') {
+    err "PATH 中 opencode 非 Application/ExternalScript（D4 缺陷4 五审）: CommandType=$($installedCmd.CommandType)（可能为 Function/Alias）"
+  }
+  if (-not $installedCmd.Path) { err "PATH 中 opencode Path 为空（D4 缺陷4 五审）" }
+  # 规范化为绝对真实路径
+  $resolvedPath = $installedCmd.Path
+  try { $resolvedPath = (Resolve-Path $installedCmd.Path -ErrorAction Stop).Path } catch {}
+  # ①+⑤ 必须位于 npm prefix 严格子目录（prefix+\ 边界，拒 prefix-evil 兄弟路径）
+  $prefixWithSep = $npmPrefix.TrimEnd('\') + '\'
+  if (-not $resolvedPath.StartsWith($prefixWithSep, [System.StringComparison]::OrdinalIgnoreCase)) {
+    err "opencode 二进制不在 npm global prefix 下（D4 缺陷4 五审）: $resolvedPath（期望在 $prefixWithSep 下，拒兄弟路径 $($npmPrefix)-evil）"
+  }
+  # ③ 版本严格等值：去前导非数字后整行严格匹配 X.Y.Z，拒 1.18.7-evil 后缀
+  $verOut = & $resolvedPath --version 2>$null
+  $verLine = if ($verOut) { "$verOut".Split("`n")[0].Trim() } else { "" }
+  $verLine = $verLine -replace '^[^0-9]+', ''
+  if ($verLine -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+    err "opencode 版本格式异常或含后缀（D4 缺陷4 五审）: '$verLine'（拒 1.18.7-evil）"
+  }
+  if ($verLine -ne "1.18.7") {
+    err "opencode PATH 实际版本 ($verLine) 与锁定 (1.18.7) 不符（D4 缺陷4 五审）"
+  }
+  ok "opencode PATH 校验通过：版本 $verLine，位于 $resolvedPath"
+}
+
 # ── 工具函数：从 .keys 读取 key ──────────────────────────────
 function Read-Key { param($name)
   if (Test-Path $KEYS_FILE) {
@@ -146,19 +181,10 @@ if ($existingVer -eq "1.18.7") {
   }
   & npm install -g $OPENCODE_NPM_PKG --registry=$NPM_REGISTRY
   if ($LASTEXITCODE -ne 0) { err "安装失败，请检查 npm 权限/registry" }
-  # 缺陷4 四审加固：装后通过 PATH 实际命令校验（不信任 npm metadata，防 PATH 残留旧版）
-  $installedCmd = Get-Command opencode -ErrorAction SilentlyContinue
-  if (-not $installedCmd) { err "opencode-ai 安装后未在 PATH 找到二进制（D4 缺陷4 四审）" }
-  $npmPrefix = & npm config get prefix 2>$null
-  if ($installedCmd.Path -notlike "$npmPrefix*") {
-    err "opencode 二进制路径异常（D4 缺陷4 四审）: $($installedCmd.Path)（期望在 npm prefix $npmPrefix 下）"
-  }
-  $verOut = & $installedCmd.Path --version 2>$null
-  if ($verOut -match '([0-9]+\.[0-9]+\.[0-9]+)') { $installedVer = $Matches[1] } else { $installedVer = "" }
-  if (-not $installedVer) { err "opencode-ai PATH 命令无法返回版本（D4 缺陷4 四审）" }
-  if ($installedVer -ne "1.18.7") { err "opencode-ai PATH 命令实际版本 ($installedVer) 与锁定 (1.18.7) 不符（D4 缺陷4 四审：PATH 残留旧版/异常）" }
-  ok "opencode PATH 校验通过：版本 $installedVer，位于 $($installedCmd.Path)"
 }
+# 缺陷4 五审加固：无论新装还是已存在锁定版本，统一 PATH 实际二进制校验
+# （防 ①外部PATH ②Function冒充 ③1.18.7-evil suffix ④空prefix ⑤prefix-evil兄弟路径）
+Verify-OpencodeViaPath
 
 # ── 3. 克隆配置仓库（D4 条件 2/3: 固定 CONFIG_REF commit SHA）──
 if (Test-Path (Join-Path $CONFIG_DIR ".git")) {

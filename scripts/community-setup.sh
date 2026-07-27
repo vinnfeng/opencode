@@ -61,6 +61,40 @@ assert_commit_sha() {
     || err "CONFIG_REF 必须 40位hex commit SHA（D4 缺陷3）: '$ref'（不得用分支名/tag）"
 }
 
+# ── D4 缺陷4 五审加固：通过 PATH 实际可执行二进制校验（不信任 npm metadata）──
+# 无论新装还是已存在锁定版本，都执行此校验，覆盖五审 5 子问题：
+#   ① 同版本外部 PATH（两分支都校验，不仅 else 分支）
+#   ② PATH 上 function/alias 冒充（必须是常规可执行文件 -f）
+#   ③ 自报 1.18.7-evil（严格整行匹配，拒宽松 regex 抽取后缀）
+#   ④ npm prefix 为空（空时 "$prefix"/* 退化为 /* 匹配任意绝对路径）
+#   ⑤ 兄弟路径 prefix-evil（"$prefix"/ 尾斜杠边界，拒 prefix-evil/opencode）
+verify_opencode_via_path() {
+  local npm_prefix installed_bin installed_ver_raw installed_ver
+  # ④ npm global prefix 必须非空（空时通配退化匹配任意绝对路径）
+  npm_prefix="$(npm config get prefix 2>/dev/null | tr -d '\r\n' | sed 's:/*$::' || true)"
+  [ -n "$npm_prefix" ] || err "npm global prefix 为空，无法校验二进制位置（D4 缺陷4 五审）"
+  # ② command -v 必须返回常规可执行文件路径（拒 function/alias/builtin）
+  installed_bin="$(command -v opencode 2>/dev/null || true)"
+  [ -n "$installed_bin" ] || err "opencode 未在 PATH 找到（D4 缺陷4 五审）"
+  [ -f "$installed_bin" ] || err "PATH 中 opencode 非常规可执行文件（D4 缺陷4 五审）: $installed_bin（可能为 function/alias）"
+  # 规范化为绝对真实路径（解符号链接）
+  installed_bin="$(readlink -f "$installed_bin" 2>/dev/null || echo "$installed_bin")"
+  # ①+⑤ 必须位于 npm prefix 严格子目录（"${prefix}/" 尾斜杠边界，拒 prefix-evil 兄弟路径）
+  case "${installed_bin}/" in
+    "${npm_prefix}/"*) : ;;  # 正确：以 prefix/ 开头
+    *) err "opencode 二进制不在 npm global prefix 下（D4 缺陷4 五审）: $installed_bin（期望在 ${npm_prefix}/ 下，拒兄弟路径 ${npm_prefix}-evil）" ;;
+  esac
+  # ③ 版本严格等值：去前导非数字 + 尾部空白后整行严格匹配 X.Y.Z，拒 1.18.7-evil 后缀
+  installed_ver_raw="$("$installed_bin" --version 2>/dev/null | head -1 | tr -d '\r' || true)"
+  installed_ver="$(printf '%s' "$installed_ver_raw" | sed -E 's/^[[:space:]]*[^0-9]*//; s/[[:space:]].*$//' || true)"
+  [ -n "$installed_ver" ] || err "opencode PATH 命令无版本输出（D4 缺陷4 五审）"
+  printf '%s' "$installed_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
+    || err "opencode 版本格式异常或含后缀（D4 缺陷4 五审）: '$installed_ver'（拒 1.18.7-evil）"
+  [ "$installed_ver" = "1.18.7" ] \
+    || err "opencode PATH 实际版本 ($installed_ver) 与锁定 (1.18.7) 不符（D4 缺陷4 五审）"
+  ok "opencode PATH 校验通过：版本 $installed_ver，位于 $installed_bin"
+}
+
 # ── 工具函数：从 .keys 读取 key ──────────────────────────────
 read_key() {
   local name="$1"
@@ -161,21 +195,10 @@ else
   fi
   npm install -g "$OPENCODE_NPM_PKG" --registry="$NPM_REGISTRY" \
     || err "安装失败，请检查 npm 权限/registry"
-  # 缺陷4 四审加固：装后通过 PATH 实际命令校验（不信任 npm metadata，防 PATH 残留旧版）
-  INSTALLED_BIN="$(command -v opencode 2>/dev/null || true)"
-  [ -n "$INSTALLED_BIN" ] || err "opencode-ai 安装后未在 PATH 找到二进制（D4 缺陷4 四审）"
-  NPM_PREFIX="$(npm config get prefix 2>/dev/null || true)"
-  case "$INSTALLED_BIN" in
-    "$NPM_PREFIX"/*) : ;; # 正确：二进制位于 npm global prefix
-    *) err "opencode 二进制路径异常（D4 缺陷4 四审）: $INSTALLED_BIN（期望在 npm prefix $NPM_PREFIX 下）" ;;
-  esac
-  INSTALLED_VER="$("$INSTALLED_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-  [ -n "$INSTALLED_VER" ] || err "opencode-ai PATH 命令无法返回版本（D4 缺陷4 四审）"
-  if [ "$INSTALLED_VER" != "1.18.7" ]; then
-    err "opencode-ai PATH 命令实际版本 ($INSTALLED_VER) 与锁定 (1.18.7) 不符（D4 缺陷4 四审：PATH 残留旧版/异常）"
-  fi
-  ok "opencode PATH 校验通过：版本 $INSTALLED_VER，位于 $INSTALLED_BIN"
 fi
+# 缺陷4 五审加固：无论新装还是已存在锁定版本，统一 PATH 实际二进制校验
+# （防 ①外部PATH ②function冒充 ③1.18.7-evil suffix绕过 ④空prefix ⑤prefix-evil兄弟路径）
+verify_opencode_via_path
 
 # ── 3. 克隆配置仓库（D4 条件 2/3: 固定 CONFIG_REF commit SHA）──
 if [ -d "$CONFIG_DIR/.git" ]; then
