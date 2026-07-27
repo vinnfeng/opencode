@@ -61,6 +61,11 @@ run_matrix() {
   run_case assert_trusted_source "https://github.com/vinnfeng/%2e%2e/attacker" fail
   run_case assert_trusted_source "https://github.com/vinnfengfoo/evil"         fail
   run_case assert_trusted_source "http://github.com/vinnfeng/x"                fail
+  # 缺陷2 三审：编码斜杠/反斜杠/双重编码/反斜杠变体绕过 dot-segment
+  run_case assert_trusted_source 'https://github.com/vinnfeng/%2f../attacker'    fail
+  run_case assert_trusted_source 'https://github.com/vinnfeng/x%5c..%5cattacker' fail
+  run_case assert_trusted_source 'https://github.com/vinnfeng/%252e%252e/attacker' fail
+  run_case assert_trusted_source 'https://github.com/vinnfeng/x\..\attacker'     fail
   # 缺陷5: immutable_ref（白名单：40hex SHA 或 vX.Y.Z[-pre]；黑名单漏项必须拒）
   run_case assert_immutable_ref "de6a37e8ffcf1f73ebe0aa1fb162794d1b965e7c"     pass
   run_case assert_immutable_ref "v1.3.17-kaiqu.3"                              pass
@@ -71,6 +76,13 @@ run_matrix() {
   run_case assert_immutable_ref "office-windows"                               fail
   run_case assert_immutable_ref "feature/foo"                                  fail
   run_case assert_immutable_ref "latest"                                       fail
+  # 缺陷5 三审：严格 semver 拒绝非法 prerelease 标签（空标识符/双点/尾空）
+  run_case assert_immutable_ref "v1.2.3-rc.1"                                  pass
+  run_case assert_immutable_ref "v1.2.3-alpha.1.beta.2"                        pass
+  run_case assert_immutable_ref "v1.2.3-."                                     fail
+  run_case assert_immutable_ref "v1.2.3-a..b"                                  fail
+  run_case assert_immutable_ref "v1.2.3-"                                      fail
+  run_case assert_immutable_ref "v1.2.3-a."                                    fail
   # 缺陷3: commit_sha（严格 40hex，拒绝 tag/短sha/分支名）
   run_case assert_commit_sha "de6a37e8ffcf1f73ebe0aa1fb162794d1b965e7c"        pass
   run_case assert_commit_sha "v1.3.17-kaiqu.3"                                 fail
@@ -101,7 +113,7 @@ struct_check() {
 struct_check_f() {
   local label="$1" file="$2" needle="$3" expect="$4"
   local n actual
-  n=$(grep -Fc "$needle" "$file" 2>/dev/null || true)
+  n=$(grep -Fc -- "$needle" "$file" 2>/dev/null || true)
   n=${n:-0}
   if [ "${n:-0}" -gt 0 ]; then actual=present; else actual=absent; fi
   if [ "$actual" = "$expect" ]; then
@@ -142,6 +154,23 @@ struct_check "defect4 npm registry pin (ps)" "$COMM_PS" 'registry\.npmjs\.org' p
 # 缺陷6: rollback 复制后 Test-Path + hash 双校验（setup.ps1）
 struct_check "defect6 rollback target verify (ps)" "$SETUP_PS" '回滚复制失败' present
 struct_check "defect6 rollback hash verify (ps)"   "$SETUP_PS" '回滚哈希与备份不符' present
+# 缺陷2 三审: decode+normalize 循环在位（4 载体）
+for f in "$SETUP_SH" "$SETUP_PS" "$COMM_SH" "$COMM_PS"; do
+  struct_check_f "defect2 decode loop" "$f" '%2[eE]' present
+done
+# 缺陷4 三审: manifest 缺 sha256 必须拒绝（不能假跳过）
+struct_check_f "defect4 reject missing-sha (sh)" "$SETUP_SH" 'manifest 缺少 sha256' present
+struct_check_f "defect4 reject missing-sha (ps)" "$SETUP_PS" 'manifest 缺少 sha256' present
+# 缺陷4 三审: 二进制缺失不假跳过（warn 在位）
+struct_check_f "defect4 binary-missing warn (sh)" "$SETUP_SH" '但二进制缺失' present
+struct_check_f "defect4 binary-missing warn (ps)" "$SETUP_PS" '但二进制缺失' present
+# 缺陷5 三审: 严格 semver 正则（拒空标识符/双点）
+for f in "$SETUP_SH" "$SETUP_PS" "$COMM_SH" "$COMM_PS"; do
+  struct_check_f "defect5 strict semver" "$f" '-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*' present
+done
+# 缺陷5 三审: community 已存在旧版卸载重装
+struct_check_f "defect5 community reinstall (sh)" "$COMM_SH" '卸载重装' present
+struct_check_f "defect5 community reinstall (ps)" "$COMM_PS" '卸载重装' present
 
 echo ""
 if [ "$FAILS" -eq 0 ]; then

@@ -59,6 +59,11 @@ function Run-Matrix {
   Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/%2e%2e/attacker"   $false
   Expect 'Assert-TrustedSource' "https://github.com/vinnfengfoo/evil"           $false
   Expect 'Assert-TrustedSource' "http://github.com/vinnfeng/x"                  $false
+  # defect 2 round3: encoded slash/backslash/double-encode/backslash bypass
+  Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/%2f../attacker"    $false
+  Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/x%5c..%5cattacker" $false
+  Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/%252e%252e/attacker" $false
+  Expect 'Assert-TrustedSource' "https://github.com/vinnfeng/x\..\attacker"     $false
   # defect 5: immutable ref (whitelist 40hex SHA or vX.Y.Z[-pre]; blacklist gaps must reject)
   Expect 'Assert-ImmutableRef' "de6a37e8ffcf1f73ebe0aa1fb162794d1b965e7c"       $true
   Expect 'Assert-ImmutableRef' "v1.3.17-kaiqu.3"                                $true
@@ -69,6 +74,13 @@ function Run-Matrix {
   Expect 'Assert-ImmutableRef' "office-windows"                                 $false
   Expect 'Assert-ImmutableRef' "feature/foo"                                    $false
   Expect 'Assert-ImmutableRef' "latest"                                         $false
+  # defect 5 round3: strict semver reject illegal prerelease tags (empty/double-dot/trailing)
+  Expect 'Assert-ImmutableRef' "v1.2.3-rc.1"                                    $true
+  Expect 'Assert-ImmutableRef' "v1.2.3-alpha.1.beta.2"                          $true
+  Expect 'Assert-ImmutableRef' "v1.2.3-."                                       $false
+  Expect 'Assert-ImmutableRef' "v1.2.3-a..b"                                    $false
+  Expect 'Assert-ImmutableRef' "v1.2.3-"                                        $false
+  Expect 'Assert-ImmutableRef' "v1.2.3-a."                                      $false
   # defect 3: commit sha (strict 40hex; reject tag/short-sha/branch)
   Expect 'Assert-CommitSha' "de6a37e8ffcf1f73ebe0aa1fb162794d1b965e7c"          $true
   Expect 'Assert-CommitSha' "v1.3.17-kaiqu.3"                                   $false
