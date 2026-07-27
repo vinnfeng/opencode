@@ -1,0 +1,16 @@
+# release.sha256 — D4 #39 release 入口门禁锚定清单
+#
+# 不可变 tag: v1.3.17-kaiqu.4-d4-20260727
+# 来源仓:    vinnfeng/opencode (fork)
+#
+# 记录四脚本分发 raw URL 内容的 SHA256（= git blob = GitHub raw 返回字节）。
+# 门禁脚本 verify-release.sh 拉四 raw URL 逐条对比此清单，任一不一致立即阻断。
+# 符合 RAW-URL-POLICY 条件 4（下载后验证 SHA256）/ 条件 7（来源·哈希·版本不一致阻断）。
+#
+# 生成方式: git show <TAG>:scripts/<file> 经 raw 字节流 SHA256
+#           （git blob 恒 LF，非 working copy——working copy 经 autocrlf 可能 CRLF）
+# 重生成:   tag 推送后 `bash scripts/verify-release.sh` 自举复验
+4368713a47fe32a81be29b21a557377e62a393ae46172cb3d67740ea1be9cc40  scripts/setup.sh
+6c3b9f503d138aab1d47a3d01f6e5592abf66ef105566cbec01f7efa214978f4  scripts/setup.ps1
+a71956508172b5fb5779a192f04de90a6a98c3be78490d8d8fb0d4acc62c53fe  scripts/community-setup.sh
+bc27608967476fd75c53466f648834be221c0c3e2102cd7d410c0896b2853569  scripts/community-setup.ps1
