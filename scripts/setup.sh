@@ -84,6 +84,20 @@ assert_commit_sha() {
     || err "CONFIG_REF 必须 40位hex commit SHA（D4 缺陷3）: '$ref'（不得用分支名/tag）"
 }
 
+# ── D4 九修阻断3: 跨平台 SHA256（macOS 默认仅 /usr/bin/shasum，无 GNU sha256sum）──
+# 优先 sha256sum（Linux），fallback shasum -a 256（macOS 自带）；二者皆无则 err 阻断。
+# verify_sha256 / check_consistency / rollback hash 统一走此函数，不再硬依赖 sha256sum。
+calc_sha256() {
+  local f="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$f" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$f" | awk '{print $1}'
+  else
+    err "缺少 sha256sum / shasum（D4 条件 4 校验所需；macOS 自带 shasum，Linux 装 coreutils）"
+  fi
+}
+
 # ── D4: SHA256 验证（条件 4）─────────────────────────────────
 # 取 $url 的 .sha256 校验文件，对比 $file 实际哈希；不存在/不匹配 err 阻断
 verify_sha256() {
@@ -97,7 +111,7 @@ verify_sha256() {
   expected="$(grep -oE '^[a-f0-9]{64}' "$sum_tmp" | head -1)"
   rm -f "$sum_tmp"
   [ -n "$expected" ] || err "SHA256 校验文件格式无效: $sum_url"
-  actual="$(sha256sum "$file" | cut -d' ' -f1)"
+  actual="$(calc_sha256 "$file")"
   if [ "$actual" != "$expected" ]; then
     err "SHA256 校验失败: $file（预期 ${expected:0:16}…，实际 ${actual:0:16}…）"
   fi
@@ -131,7 +145,7 @@ check_consistency() {
   [ -n "$recorded_sha" ] || err "manifest 缺少 sha256（D4 缺陷4）：$MANIFEST_FILE（不能假跳过）"
   # 已装二进制实际 sha 必须与 manifest 记录一致（防同 URL/version 下二进制被替换/篡改）
   if [ -n "${INSTALL_PATH:-}" ] && [ -f "$INSTALL_PATH" ]; then
-    actual_sha="$(sha256sum "$INSTALL_PATH" | cut -d' ' -f1)"
+    actual_sha="$(calc_sha256 "$INSTALL_PATH")"
     [ "$actual_sha" = "$recorded_sha" ] \
       || err "已装二进制哈希与 manifest 不符（D4 缺陷4 篡改检测）: 记录 ${recorded_sha:0:16}…，实际 ${actual_sha:0:16}…"
   fi
@@ -295,7 +309,9 @@ echo ""
 for cmd in node git curl; do
   command -v "$cmd" &>/dev/null || err "缺少依赖: $cmd（请先安装）"
 done
-command -v sha256sum &>/dev/null || err "缺少依赖: sha256sum（D4 条件 4 校验所需）"
+# 九修阻断3: sha256sum 或 shasum 二者其一即可（macOS 默认仅 shasum，无 GNU sha256sum）
+command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 \
+  || err "缺少依赖: sha256sum / shasum（D4 条件 4 校验所需；macOS 自带 shasum）"
 
 # ── D4 缺陷2/5: 安装入口白名单 + 不可变 ref 校验（执行任何下载前）──
 assert_trusted_source "$SETUP_URL"
@@ -359,12 +375,11 @@ if [ "$MODE" = "rollback" ]; then
   else sudo cp "$PREV_BIN" "$INSTALL_PATH"; fi
   # 缺陷6: 回滚复制后校验目标存在 + hash 与备份一致（防 PS 那种"rc=0 打印成功但目标不存在"假成功）
   [ -f "$INSTALL_PATH" ] || err "回滚复制失败，目标不存在: $INSTALL_PATH（D4 缺陷6）"
-  if command -v sha256sum &>/dev/null; then
-    ROLLBACK_SHA="$(sha256sum "$INSTALL_PATH" | cut -d' ' -f1)"
-    BACKUP_SHA="$(sha256sum "$PREV_BIN" | cut -d' ' -f1)"
-    [ "$ROLLBACK_SHA" = "$BACKUP_SHA" ] \
-      || err "回滚哈希与备份不符（D4 缺陷6）: $INSTALL_PATH vs $PREV_BIN"
-  fi
+  # 九修阻断3: rollback hash 用跨平台 calc_sha256（macOS shasum fallback），必验不再按 sha256sum 有无跳过
+  ROLLBACK_SHA="$(calc_sha256 "$INSTALL_PATH")"
+  BACKUP_SHA="$(calc_sha256 "$PREV_BIN")"
+  [ "$ROLLBACK_SHA" = "$BACKUP_SHA" ] \
+    || err "回滚哈希与备份不符（D4 缺陷6）: $INSTALL_PATH vs $PREV_BIN"
   echo "$PREV_TAG" > "$VERSION_STAMP"
 
   # D4: 回滚 manifest（若有备份）
