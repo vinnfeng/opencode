@@ -5,11 +5,11 @@
 #  Key 本地存储，不进 git，支持更新时保留上次配置
 #
 #  用法（raw URL 固定到 RELEASE_TAG，符合 RAW-URL-POLICY 条件 2/3）：
-#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.3/scripts/community-setup.sh)
+#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.4-d4-20260727/scripts/community-setup.sh)
 # ═══════════════════════════════════════════════════════════
 set -euo pipefail
 
-RELEASE_TAG="v1.3.17-kaiqu.3"
+RELEASE_TAG="v1.3.17-kaiqu.4-d4-20260727"
 CONFIG_REPO="https://github.com/vinnfeng/opencode-config.git"
 # D4 条件 2/3: CONFIG checkout 固定 commit SHA（非浮动 community 分支）
 CONFIG_REF="3b91bce58bb4d99b4b33c58d52a73e90721e1e75"
