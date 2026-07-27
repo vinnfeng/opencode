@@ -25,17 +25,26 @@ function warn { param($m) Write-Host "⚠️   $m" -ForegroundColor Yellow }
 function info { param($m) Write-Host "➜   $m" -ForegroundColor Cyan }
 function err  { param($m) Write-Host "❌  $m" -ForegroundColor Red; exit 1 }
 
-# ── D4 缺陷2: 可信来源白名单校验 ────────────────────────────
+# ── D4 缺陷2: 可信来源白名单校验（硬化：拒 dot-segment 绕过）──
 function Assert-TrustedSource { param($url)
-  if ($url -like "https://raw.githubusercontent.com/vinnfeng/*" -or $url -like "https://github.com/vinnfeng/*") { return }
-  err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/*）"
-}
-# ── D4 缺陷5: 不可变 ref 校验（禁止浮动分支作一键执行输入）───
-function Assert-ImmutableRef { param($ref)
-  $floating = @("main", "master", "dev", "develop", "latest", "HEAD", "")
-  if ($floating -contains $ref) {
-    err "拒绝浮动 ref（D4 缺陷5）: '$ref'（须固定 tag 或 commit SHA）"
+  if (-not ($url -like "https://github.com/vinnfeng/*" -or $url -like "https://raw.githubusercontent.com/vinnfeng/*")) {
+    err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/* 或 raw.githubusercontent.com/vinnfeng/*）"
   }
+  if ($url -match '/(\.\.?)(/|$)|%2[eE]') {
+    err "来源含 dot-segment/编码点（D4 缺陷2 路径穿越）: $url"
+  }
+}
+# ── D4 缺陷5: 不可变 ref 校验（白名单：仅 40hex SHA 或 vX.Y.Z[-pre] tag）──
+function Assert-ImmutableRef { param($ref)
+  if ([string]::IsNullOrEmpty($ref)) { err "拒绝空 ref（D4 缺陷5）" }
+  if ($ref -cmatch '^[0-9a-f]{40}$') { return }
+  if ($ref -cmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$') { return }
+  err "拒绝浮动/非法 ref（D4 缺陷5）: '$ref'（仅允许 40位hex SHA 或 vX.Y.Z[-pre] tag；禁 main/master/dev/release/office-windows/latest/HEAD 等）"
+}
+# ── D4 缺陷3: CONFIG_REF 必须 40位hex commit SHA（防误填分支名/tag）──
+function Assert-CommitSha { param($ref)
+  if ($ref -cmatch '^[0-9a-f]{40}$') { return }
+  err "CONFIG_REF 必须 40位hex commit SHA（D4 缺陷3）: '$ref'（不得用分支名/tag）"
 }
 
 # ── 工具函数：从 .keys 读取 key ──────────────────────────────
@@ -105,21 +114,29 @@ foreach ($cmd in @("git", "node", "npm")) {
   if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { err "缺少依赖: $cmd" }
 }
 
-# ── D4 缺陷2/5: 白名单 + 不可变 ref 校验（任何下载/克隆前）──
+# ── D4 缺陷2/3/5: 白名单 + 不可变 ref + CONFIG_REF SHA 校验 ──
 Assert-TrustedSource $COMMUNITY_URL
 Assert-TrustedSource $CONFIG_REPO
 Assert-ImmutableRef $RELEASE_TAG
+Assert-CommitSha $CONFIG_REF
 
 # ── 2. 安装官方 opencode ──────────────────────────────────────
-# D4 说明：社区版二进制走 npm 渠道（npm 自带包签名校验），不走 release 资产下载，
-# 故 D4 条件 4（SHA256）对社区版不适用；npm install 本身即校验来源与完整性。
+# D4 缺陷4/5：社区版走 npm 渠道，必须锁版本 + 固定官方 registry + 装后校验实际版本
+# （铸言复核：原 npm install -g opencode-ai 隐式 @latest，无完整性校验，N/A 标注不合理）
+$OPENCODE_NPM_PKG = "opencode-ai@1.18.7"
+$NPM_REGISTRY     = "https://registry.npmjs.org"
 if (Get-Command opencode -ErrorAction SilentlyContinue) {
   ok "opencode 已安装"
 } else {
-  info "安装 opencode-ai (官方版，npm 渠道)..."
-  & npm install -g opencode-ai
-  if ($LASTEXITCODE -ne 0) { err "安装失败，请检查 npm 权限" }
-  ok "opencode 安装完成"
+  info "安装 $OPENCODE_NPM_PKG (官方版，固定 registry)..."
+  & npm install -g $OPENCODE_NPM_PKG --registry=$NPM_REGISTRY
+  if ($LASTEXITCODE -ne 0) { err "安装失败，请检查 npm 权限/registry" }
+  # 缺陷4：装后校验实际版本，防止 registry 返回其他版本/被替换
+  $installedLine = & npm list -g opencode-ai --depth=0 2>$null | Select-String -Pattern 'opencode-ai@([0-9.]+)' | Select-Object -First 1
+  $installedVer = if ($installedLine) { $installedLine.Matches[0].Groups[1].Value } else { "" }
+  if (-not $installedVer) { err "opencode-ai 安装后无法确认版本（D4 缺陷4）" }
+  if ($installedVer -ne "1.18.7") { err "opencode-ai 实际版本 ($installedVer) 与锁定 (1.18.7) 不符（D4 缺陷4）" }
+  ok "opencode 安装完成 ($installedVer)"
 }
 
 # ── 3. 克隆配置仓库（D4 条件 2/3: 固定 CONFIG_REF commit SHA）──

@@ -27,21 +27,30 @@ warn() { echo -e "${YELLOW}⚠️   $*${RESET}"; }
 err()  { echo -e "${RED}❌  $*${RESET}"; exit 1; }
 info() { echo -e "${BLUE}➜   $*${RESET}"; }
 
-# ── D4 缺陷2: 可信来源白名单校验 ────────────────────────────
+# ── D4 缺陷2: 可信来源白名单校验（硬化：拒 dot-segment 绕过）──
 assert_trusted_source() {
   local url="$1"
   case "$url" in
-    https://raw.githubusercontent.com/vinnfeng/*|https://github.com/vinnfeng/*) return 0 ;;
-    *) err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/*）" ;;
+    https://github.com/vinnfeng/*|https://raw.githubusercontent.com/vinnfeng/*) : ;;
+    *) err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/* 或 raw.githubusercontent.com/vinnfeng/*）" ;;
   esac
+  if printf '%s' "$url" | grep -qE '/(\.\.?)(/|$)|%2e|%2E'; then
+    err "来源含 dot-segment/编码点（D4 缺陷2 路径穿越）: $url"
+  fi
 }
-# ── D4 缺陷5: 不可变 ref 校验（禁止浮动分支作一键执行输入）───
+# ── D4 缺陷5: 不可变 ref 校验（白名单：仅 40hex SHA 或 vX.Y.Z[-pre] tag）──
 assert_immutable_ref() {
   local ref="${1:-}"
-  case "$ref" in
-    main|master|dev|develop|latest|HEAD|'') err "拒绝浮动 ref（D4 缺陷5）: '$ref'（须固定 tag 或 commit SHA）" ;;
-    *) return 0 ;;
-  esac
+  [ -n "$ref" ] || err "拒绝空 ref（D4 缺陷5）"
+  printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$' && return 0
+  printf '%s' "$ref" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' && return 0
+  err "拒绝浮动/非法 ref（D4 缺陷5）: '$ref'（仅允许 40位hex SHA 或 vX.Y.Z[-pre] tag；禁 main/master/dev/release/office-windows/latest/HEAD 等）"
+}
+# ── D4 缺陷3: CONFIG_REF 必须 40位hex commit SHA（防误填分支名/tag）──
+assert_commit_sha() {
+  local ref="${1:-}"
+  printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$' \
+    || err "CONFIG_REF 必须 40位hex commit SHA（D4 缺陷3）: '$ref'（不得用分支名/tag）"
 }
 
 # ── 工具函数：从 .keys 读取 key ──────────────────────────────
@@ -116,20 +125,30 @@ for cmd in git curl node npm; do
   command -v "$cmd" &>/dev/null || err "缺少依赖: $cmd"
 done
 
-# ── D4 缺陷2/5: 白名单 + 不可变 ref 校验（任何下载/克隆前）──
+# ── D4 缺陷2/3/5: 白名单 + 不可变 ref + CONFIG_REF SHA 校验 ──
 assert_trusted_source "$COMMUNITY_URL"
 assert_trusted_source "$CONFIG_REPO"
 assert_immutable_ref "$RELEASE_TAG"
+assert_commit_sha "$CONFIG_REF"
 
 # ── 2. 安装官方 opencode ──────────────────────────────────────
-# D4 说明：社区版二进制走 npm 渠道（npm 自带包签名校验），不走 release 资产下载，
-# 故 D4 条件 4（SHA256）对社区版不适用；npm install 本身即校验来源与完整性。
+# D4 缺陷4/5：社区版走 npm 渠道，必须锁版本 + 固定官方 registry + 装后校验实际版本
+# （铸言复核：原 npm install -g opencode-ai 隐式 @latest，无完整性校验，N/A 标注不合理）
+OPENCODE_NPM_PKG="opencode-ai@1.18.7"
+NPM_REGISTRY="https://registry.npmjs.org"
 if command -v opencode &>/dev/null; then
   ok "opencode 已安装: $(opencode --version 2>/dev/null || echo 'ok')"
 else
-  info "安装 opencode-ai (官方版，npm 渠道)..."
-  npm install -g opencode-ai || err "安装失败，请检查 npm 权限"
-  ok "opencode 安装完成"
+  info "安装 $OPENCODE_NPM_PKG (官方版，固定 registry)..."
+  npm install -g "$OPENCODE_NPM_PKG" --registry="$NPM_REGISTRY" \
+    || err "安装失败，请检查 npm 权限/registry"
+  # 缺陷4：装后校验实际版本，防止 registry 返回其他版本/被替换
+  INSTALLED_VER="$(npm list -g opencode-ai --depth=0 2>/dev/null | grep -oE 'opencode-ai@[0-9.]+' | head -1 | cut -d@ -f2 || true)"
+  [ -n "$INSTALLED_VER" ] || err "opencode-ai 安装后无法确认版本（D4 缺陷4）"
+  if [ "$INSTALLED_VER" != "1.18.7" ]; then
+    err "opencode-ai 实际版本 ($INSTALLED_VER) 与锁定 (1.18.7) 不符（D4 缺陷4）"
+  fi
+  ok "opencode 安装完成 ($INSTALLED_VER)"
 fi
 
 # ── 3. 克隆配置仓库（D4 条件 2/3: 固定 CONFIG_REF commit SHA）──
