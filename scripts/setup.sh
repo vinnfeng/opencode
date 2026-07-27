@@ -125,8 +125,10 @@ check_consistency() {
   if [ "$recorded_url" != "$DOWNLOAD_URL" ] || [ "$recorded_version" != "$RELEASE_TAG" ]; then
     err "来源/版本不一致（D4 条件 7 阻断）: 记录 $recorded_url/$recorded_version，当前 $DOWNLOAD_URL/$RELEASE_TAG"
   fi
-  # 缺陷4强化：已装二进制实际 sha 必须与 manifest 记录一致（防同 URL/version 下二进制被替换/篡改）
-  if [ -n "${INSTALL_PATH:-}" ] && [ -n "$recorded_sha" ] && [ -f "$INSTALL_PATH" ]; then
+  # 缺陷4强化：manifest 必须含 sha256（缺失=被篡改/不完整，必须拒绝，不能假跳过）
+  [ -n "$recorded_sha" ] || err "manifest 缺少 sha256（D4 缺陷4）：$MANIFEST_FILE（不能假跳过）"
+  # 已装二进制实际 sha 必须与 manifest 记录一致（防同 URL/version 下二进制被替换/篡改）
+  if [ -n "${INSTALL_PATH:-}" ] && [ -f "$INSTALL_PATH" ]; then
     actual_sha="$(sha256sum "$INSTALL_PATH" | cut -d' ' -f1)"
     [ "$actual_sha" = "$recorded_sha" ] \
       || err "已装二进制哈希与 manifest 不符（D4 缺陷4 篡改检测）: 记录 ${recorded_sha:0:16}…，实际 ${actual_sha:0:16}…"
@@ -441,15 +443,20 @@ check_consistency
 if command -v opencode &>/dev/null; then
   INSTALL_PATH="$(command -v opencode)"
   INSTALLED_TAG="$(cat "$VERSION_STAMP" 2>/dev/null | tr -d '[:space:]' || true)"
-  if [ "$INSTALLED_TAG" = "$RELEASE_TAG" ] && [ "$MODE" != "binary" ]; then
+  # 缺陷4：skip 必须二进制实际存在，否则版本戳记录最新但二进制缺失会假跳过
+  if [ "$INSTALLED_TAG" = "$RELEASE_TAG" ] && [ "$MODE" != "binary" ] && [ -f "$INSTALL_PATH" ]; then
     ok "二进制已是最新版 ($RELEASE_TAG)，跳过下载"
-  elif [ "$INSTALLED_TAG" = "$RELEASE_TAG" ] && [ "$MODE" = "binary" ]; then
+  elif [ "$INSTALLED_TAG" = "$RELEASE_TAG" ] && [ "$MODE" = "binary" ] && [ -f "$INSTALL_PATH" ]; then
     ok "已是最新版 ($RELEASE_TAG)，无需更新"
     exit 0
   else
-    info "已安装: ${INSTALLED_TAG:-未知} -> 更新至 $RELEASE_TAG"
-    # 更新前备份旧二进制，用于回退（D4 条件 10）
-    if [ -n "$INSTALLED_TAG" ]; then
+    if [ -n "$INSTALLED_TAG" ] && [ ! -f "$INSTALL_PATH" ]; then
+      warn "版本戳记录 $INSTALLED_TAG 但二进制缺失，重新下载（D4 缺陷4：不能按版本戳假跳过）"
+    else
+      info "已安装: ${INSTALLED_TAG:-未知} -> 更新至 $RELEASE_TAG"
+    fi
+    # 更新前备份旧二进制（仅当二进制存在），用于回退（D4 条件 10）
+    if [ -n "$INSTALLED_TAG" ] && [ -f "$INSTALL_PATH" ]; then
       mkdir -p "$BACKUP_DIR"
       cp "$INSTALL_PATH" "$BACKUP_DIR/opencode-${INSTALLED_TAG}"
       echo "$INSTALLED_TAG" > "$PREVIOUS_VERSION_STAMP"

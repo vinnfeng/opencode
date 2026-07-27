@@ -128,8 +128,10 @@ function Check-Consistency {
   if ($recordedUrl -ne $DOWNLOAD_URL -or $recordedVersion -ne $RELEASE_TAG) {
     err "来源/版本不一致（D4 条件 7 阻断）: 记录 $recordedUrl/$recordedVersion，当前 $DOWNLOAD_URL/$RELEASE_TAG"
   }
-  # 缺陷4强化：已装二进制实际 sha 必须与 manifest 记录一致（防同 URL/version 下二进制被替换/篡改）
-  if ($INSTALL_PATH -and $recordedSha -and (Test-Path $INSTALL_PATH)) {
+  # 缺陷4强化：manifest 必须含 sha256（缺失=被篡改/不完整，必须拒绝，不能假跳过）
+  if (-not $recordedSha) { err "manifest 缺少 sha256（D4 缺陷4）：$MANIFEST_FILE（不能假跳过）" }
+  # 已装二进制实际 sha 必须与 manifest 记录一致（防同 URL/version 下二进制被替换/篡改）
+  if ($INSTALL_PATH -and (Test-Path $INSTALL_PATH)) {
     $actualSha = (Get-FileHash $INSTALL_PATH -Algorithm SHA256).Hash.ToLower()
     if ($actualSha -ne $recordedSha.ToLower()) {
       err "已装二进制哈希与 manifest 不符（D4 缺陷4 篡改检测）: 记录 $($recordedSha.Substring(0,16))…，实际 $($actualSha.Substring(0,16))…"
@@ -392,14 +394,19 @@ Check-Consistency
 
 $installedTag = if (Test-Path $VERSION_STAMP) { (Get-Content $VERSION_STAMP -Raw).Trim() } else { "" }
 
-if ($installedTag -eq $RELEASE_TAG -and $MODE -ne "binary") {
+# 缺陷4：skip 必须二进制实际存在，否则版本戳记录最新但二进制缺失会假跳过
+if ($installedTag -eq $RELEASE_TAG -and $MODE -ne "binary" -and (Test-Path $INSTALL_PATH)) {
   ok "二进制已是最新版 ($RELEASE_TAG)，跳过下载"
-} elseif ($installedTag -eq $RELEASE_TAG -and $MODE -eq "binary") {
+} elseif ($installedTag -eq $RELEASE_TAG -and $MODE -eq "binary" -and (Test-Path $INSTALL_PATH)) {
   ok "已是最新版 ($RELEASE_TAG)，无需更新"
   exit 0
 } else {
   if ($installedTag) {
-    info "已安装: $installedTag -> 更新至 $RELEASE_TAG"
+    if (-not (Test-Path $INSTALL_PATH)) {
+      warn "版本戳记录 $installedTag 但二进制缺失，重新下载（D4 缺陷4：不能按版本戳假跳过）"
+    } else {
+      info "已安装: $installedTag -> 更新至 $RELEASE_TAG"
+    }
     # 更新前备份旧二进制，用于回退（D4 条件 10）
     New-Item -ItemType Directory -Force -Path $BACKUP_DIR | Out-Null
     $backupPath = Join-Path $BACKUP_DIR "opencode-$installedTag.exe"
