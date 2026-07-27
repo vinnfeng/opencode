@@ -44,29 +44,35 @@ warn() { echo -e "${YELLOW}⚠️   $*${RESET}"; }
 err()  { echo -e "${RED}❌  $*${RESET}"; exit 1; }
 info() { echo -e "${BLUE}➜   $*${RESET}"; }
 
-# ── D4 缺陷2: 可信来源白名单校验 ────────────────────────────
-# 校验 $url 域名在可信白名单（仅 github.com/vinnfeng/*），否则 err 阻断
+# ── D4 缺陷2: 可信来源白名单校验（硬化：拒 dot-segment 绕过）──
+# 严格前缀匹配 https://<host>/vinnfeng/（尾斜杠防 vinnfengfoo 前缀绕过），
+# 并拒绝路径中任何 dot-segment（../  /./  编码 %2e）防 owner 路径穿越到 attacker 仓。
 assert_trusted_source() {
   local url="$1"
   case "$url" in
-    https://raw.githubusercontent.com/vinnfeng/*|\
-    https://github.com/vinnfeng/*)
-      return 0 ;;
-    *)
-      err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/*）" ;;
+    https://github.com/vinnfeng/*|https://raw.githubusercontent.com/vinnfeng/*) : ;;
+    *) err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/* 或 raw.githubusercontent.com/vinnfeng/*）" ;;
   esac
+  if printf '%s' "$url" | grep -qE '/(\.\.?)(/|$)|%2e|%2E'; then
+    err "来源含 dot-segment/编码点（D4 缺陷2 路径穿越）: $url"
+  fi
 }
 
-# ── D4 缺陷5: 不可变 ref 校验（禁止浮动分支作一键执行输入）───
-# 校验 $ref 非浮动分支名（main/master/dev/develop/latest/HEAD/空），须固定 tag 或 commit SHA
+# ── D4 缺陷5: 不可变 ref 校验（白名单：仅 40hex SHA 或 vX.Y.Z[-pre] tag）──
+# 黑名单易漏（release/office-windows/feature/foo 不在表内会被放行），改白名单严格允许。
 assert_immutable_ref() {
   local ref="${1:-}"
-  case "$ref" in
-    main|master|dev|develop|latest|HEAD|'')
-      err "拒绝浮动 ref（D4 缺陷5）: '$ref'（须用固定 tag 或 commit SHA，不得用 main/dev/latest）" ;;
-    *)
-      return 0 ;;
-  esac
+  [ -n "$ref" ] || err "拒绝空 ref（D4 缺陷5）"
+  printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$' && return 0
+  printf '%s' "$ref" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' && return 0
+  err "拒绝浮动/非法 ref（D4 缺陷5）: '$ref'（仅允许 40位hex SHA 或 vX.Y.Z[-pre] tag；禁 main/master/dev/release/office-windows/latest/HEAD 等）"
+}
+
+# ── D4 缺陷3: CONFIG_REF 必须 40位hex commit SHA（防误填分支名/tag）──
+assert_commit_sha() {
+  local ref="${1:-}"
+  printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$' \
+    || err "CONFIG_REF 必须 40位hex commit SHA（D4 缺陷3）: '$ref'（不得用分支名/tag）"
 }
 
 # ── D4: SHA256 验证（条件 4）─────────────────────────────────
@@ -105,11 +111,18 @@ save_manifest() {
 # ── D4: 来源/版本一致性阻断（条件 7）────────────────────────
 check_consistency() {
   [ -f "$MANIFEST_FILE" ] || return 0
-  local recorded_url recorded_version
+  local recorded_url recorded_version recorded_sha actual_sha
   recorded_url="$(grep -E '^source_url=' "$MANIFEST_FILE" | cut -d= -f2-)"
   recorded_version="$(grep -E '^version=' "$MANIFEST_FILE" | cut -d= -f2-)"
+  recorded_sha="$(grep -E '^sha256=' "$MANIFEST_FILE" | cut -d= -f2-)"
   if [ "$recorded_url" != "$DOWNLOAD_URL" ] || [ "$recorded_version" != "$RELEASE_TAG" ]; then
     err "来源/版本不一致（D4 条件 7 阻断）: 记录 $recorded_url/$recorded_version，当前 $DOWNLOAD_URL/$RELEASE_TAG"
+  fi
+  # 缺陷4强化：已装二进制实际 sha 必须与 manifest 记录一致（防同 URL/version 下二进制被替换/篡改）
+  if [ -n "${INSTALL_PATH:-}" ] && [ -n "$recorded_sha" ] && [ -f "$INSTALL_PATH" ]; then
+    actual_sha="$(sha256sum "$INSTALL_PATH" | cut -d' ' -f1)"
+    [ "$actual_sha" = "$recorded_sha" ] \
+      || err "已装二进制哈希与 manifest 不符（D4 缺陷4 篡改检测）: 记录 ${recorded_sha:0:16}…，实际 ${actual_sha:0:16}…"
   fi
 }
 
@@ -235,8 +248,8 @@ generate_config() {
   if [ -d "$omo_path" ]; then
     plugin_val="file://$omo_path"
   else
-    plugin_val="oh-my-opencode@latest"
-    warn "oh-my-opencode 本地缓存未找到，使用在线版（需要网络）"
+    plugin_val="oh-my-opencode@4.19.2"
+    warn "oh-my-opencode 本地缓存未找到，使用在线固定版本 4.19.2（D4 缺陷5：禁 @latest 浮动）"
   fi
 
   GEN_PROVIDER="$provider_key" GEN_BAILIAN="$bailian_key" GEN_PLUGIN="$plugin_val" \
@@ -278,6 +291,7 @@ assert_trusted_source "$SETUP_URL"
 assert_trusted_source "$RELEASE_BASE"
 assert_trusted_source "$CONFIG_REPO"
 assert_immutable_ref "$RELEASE_TAG"
+assert_commit_sha "$CONFIG_REF"
 
 # ── only-keys 模式 ────────────────────────────────────────────
 if [ "$MODE" = "keys" ]; then
@@ -332,6 +346,14 @@ if [ "$MODE" = "rollback" ]; then
 
   if [ -w "$(dirname "$INSTALL_PATH")" ]; then cp "$PREV_BIN" "$INSTALL_PATH"
   else sudo cp "$PREV_BIN" "$INSTALL_PATH"; fi
+  # 缺陷6: 回滚复制后校验目标存在 + hash 与备份一致（防 PS 那种"rc=0 打印成功但目标不存在"假成功）
+  [ -f "$INSTALL_PATH" ] || err "回滚复制失败，目标不存在: $INSTALL_PATH（D4 缺陷6）"
+  if command -v sha256sum &>/dev/null; then
+    ROLLBACK_SHA="$(sha256sum "$INSTALL_PATH" | cut -d' ' -f1)"
+    BACKUP_SHA="$(sha256sum "$PREV_BIN" | cut -d' ' -f1)"
+    [ "$ROLLBACK_SHA" = "$BACKUP_SHA" ] \
+      || err "回滚哈希与备份不符（D4 缺陷6）: $INSTALL_PATH vs $PREV_BIN"
+  fi
   echo "$PREV_TAG" > "$VERSION_STAMP"
 
   # D4: 回滚 manifest（若有备份）
@@ -399,7 +421,14 @@ fi
 # 6. 下载并安装二进制
 DOWNLOAD_URL="$RELEASE_BASE/$BINARY_NAME"
 
-# D4 条件 7: 下载前一致性阻断（对比 manifest 记录的来源/版本）
+# INSTALL_PATH 提前确定（供 check_consistency 比对已装二进制实际 sha，缺陷4强化）
+if command -v opencode &>/dev/null; then
+  INSTALL_PATH="$(command -v opencode)"
+else
+  INSTALL_PATH="/usr/local/bin/opencode"
+fi
+
+# D4 条件 7 + 缺陷4: 下载前一致性阻断 + 已装二进制 sha 篡改检测
 check_consistency
 
 if command -v opencode &>/dev/null; then
