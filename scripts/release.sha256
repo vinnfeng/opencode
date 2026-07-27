@@ -1,7 +1,18 @@
 # release.sha256 — D4 #39 release 入口门禁锚定清单
 #
-# 不可变 tag: v1.3.17-kaiqu.4-d4-20260727
+# 不可变 tag: v1.3.17-kaiqu.5-d4-20260727
 # 来源仓:    vinnfeng/opencode (fork)
+#
+# 九修阻断2（铸言 POLICY）: 旧 tag v1.3.17-kaiqu.4-d4-20260727→7f2220f223 曾被
+# force-update 一次（verify-release.sh 初版 read IFS= bug 修复后重推），客观违反
+# RAW-URL-POLICY 条件 2 不可变 tag 语义，无法恢复"从未移动"事实。
+# 处置: 保留 kaiqu.4 作历史（不再 force/delete——二次违反），标 SUPERSEDED；
+#       基于九修修复 commit 创全新 kaiqu.5，首次推送后严禁移动/删除（一次做对）。
+# 旧 tag 内容哈希（kaiqu.4 @ 7f2220f223，仅存档，勿再用）:
+#   setup.sh              4368713a47fe32a81be29b21a557377e62a393ae46172cb3d67740ea1be9cc40
+#   setup.ps1             6c3b9f503d138aab1d47a3d01f6e5592abf66ef105566cbec01f7efa214978f4
+#   community-setup.sh    a71956508172b5fb5779a192f04de90a6a98c3be78490d8d8fb0d4acc62c53fe
+#   community-setup.ps1   bc27608967476fd75c53466f648834be221c0c3e2102cd7d410c0896b2853569
 #
 # 记录四脚本分发 raw URL 内容的 SHA256（= git blob = GitHub raw 返回字节）。
 # 门禁脚本 verify-release.sh 拉四 raw URL 逐条对比此清单，任一不一致立即阻断。
@@ -10,7 +21,7 @@
 # 生成方式: git show <TAG>:scripts/<file> 经 raw 字节流 SHA256
 #           （git blob 恒 LF，非 working copy——working copy 经 autocrlf 可能 CRLF）
 # 重生成:   tag 推送后 `bash scripts/verify-release.sh` 自举复验
-4368713a47fe32a81be29b21a557377e62a393ae46172cb3d67740ea1be9cc40  scripts/setup.sh
-6c3b9f503d138aab1d47a3d01f6e5592abf66ef105566cbec01f7efa214978f4  scripts/setup.ps1
-a71956508172b5fb5779a192f04de90a6a98c3be78490d8d8fb0d4acc62c53fe  scripts/community-setup.sh
-bc27608967476fd75c53466f648834be221c0c3e2102cd7d410c0896b2853569  scripts/community-setup.ps1
+72d7c801593ce2522450cdf129cbee299111be434e016abb6212a50cf7a4c565  scripts/setup.sh
+68d23bd9cd20474db964bf44a5f6d9c9fcbe4f03aa074f424430313f457fa93b  scripts/setup.ps1
+132e341efcf0f414aa4355b5c46957c517c5f334868f9a4ba2cf4b5163d4e5e6  scripts/community-setup.sh
+2478c0a275d2f02f7d8fbcf7ecf88aebc4223907efede3ce40259192898f23c7  scripts/community-setup.ps1

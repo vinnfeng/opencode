@@ -3,7 +3,7 @@
 #
 #  用法：
 #    # 首次安装 / 完整更新（管理员 PowerShell 推荐，raw URL 固定到 RELEASE_TAG）
-#    irm https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.4-d4-20260727/scripts/setup.ps1 | iex
+#    irm https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.5-d4-20260727/scripts/setup.ps1 | iex
 #
 #    # 只更新所有 API Key
 #    .\setup.ps1 --keys
@@ -26,7 +26,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-$RELEASE_TAG   = "v1.3.17-kaiqu.4-d4-20260727"
+$RELEASE_TAG   = "v1.3.17-kaiqu.5-d4-20260727"
 $RELEASE_BASE  = "https://github.com/vinnfeng/opencode/releases/download/$RELEASE_TAG"
 $CONFIG_REPO   = "https://github.com/vinnfeng/opencode-config.git"
 # D4 条件 2/3: CONFIG checkout 固定 commit SHA（非浮动 office-windows 分支）

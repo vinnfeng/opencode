@@ -3,7 +3,7 @@
 #  开渠 (OpenCode) 个人版一键安装/更新 - macOS & Linux
 #
 #  首次安装 / 完整更新（raw URL 固定到 RELEASE_TAG，符合 RAW-URL-POLICY 条件 2/3）：
-#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.4-d4-20260727/scripts/setup.sh)
+#    bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.5-d4-20260727/scripts/setup.sh)
 #
 #  带参数运行（同样用 curl 方式）：
 #    bash <(curl -fsSL ...setup.sh) --keys       # 只更新所有 key
@@ -13,13 +13,13 @@
 #    bash <(curl -fsSL ...setup.sh) --help       # 查看帮助
 #
 #  也可保存到本地后使用：
-#    curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.4-d4-20260727/scripts/setup.sh -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh
+#    curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.5-d4-20260727/scripts/setup.sh -o ~/opencode-setup.sh && chmod +x ~/opencode-setup.sh
 #    ~/opencode-setup.sh --keys
 # ═══════════════════════════════════════════════════════════
 set -euo pipefail
 
 RELEASE_REPO="vinnfeng/opencode"
-RELEASE_TAG="v1.3.17-kaiqu.4-d4-20260727"
+RELEASE_TAG="v1.3.17-kaiqu.5-d4-20260727"
 RELEASE_BASE="https://github.com/$RELEASE_REPO/releases/download/$RELEASE_TAG"
 CONFIG_REPO="https://github.com/vinnfeng/opencode-config.git"
 # D4 条件 2/3: CONFIG checkout 固定 commit SHA（非浮动 main 分支），获取时锁定

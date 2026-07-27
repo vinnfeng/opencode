@@ -15,7 +15,7 @@
 #
 # 用法（本地或自举均可）：
 #   bash scripts/verify-release.sh
-#   bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.4-d4-20260727/scripts/verify-release.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/vinnfeng/opencode/v1.3.17-kaiqu.5-d4-20260727/scripts/verify-release.sh)
 #
 # 测试（test-d4-asserts.sh Part D）：source 本文件后覆盖 fetch_and_hash 为无网 stub，
 # 喂构造 manifest 验证五类伪造阻断。生产执行（bash 进程）不受外部函数覆盖影响。
@@ -24,7 +24,7 @@
 # process_manifest 用显式 fail 累计 + return，避免 errexit 在函数末尾 `[ -eq 0 ]` 误杀。
 set -uo pipefail
 
-RELEASE_TAG="v1.3.17-kaiqu.4-d4-20260727"
+RELEASE_TAG="v1.3.17-kaiqu.5-d4-20260727"
 RELEASE_REPO="vinnfeng/opencode"
 # 九修阻断1: base 不含 /scripts 后缀——manifest 路径自带 scripts/ 前缀，精确拼接出 raw URL（禁 basename）
 RELEASE_BASE="https://raw.githubusercontent.com/${RELEASE_REPO}/${RELEASE_TAG}"
