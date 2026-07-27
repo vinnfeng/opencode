@@ -56,18 +56,12 @@ function Assert-TrustedSource { param($url)
   if (-not ($url -like "https://github.com/vinnfeng/*" -or $url -like "https://raw.githubusercontent.com/vinnfeng/*")) {
     err "来源不在可信白名单（D4 缺陷2）: $url（仅允许 github.com/vinnfeng/* 或 raw.githubusercontent.com/vinnfeng/*）"
   }
-  # decode URL 编码（含双重编码循环 %252e->%2e->.）+ 反斜杠转斜杠 + 拒 dot-segment 变体
-  $decoded = $url; $prev = ""
-  while ($decoded -ne $prev) {
-    $prev = $decoded
-    $decoded = $decoded -replace '%2[eE]', '.'
-    $decoded = $decoded -replace '%2[fF]', '/'
-    $decoded = $decoded -replace '%5[cC]', '\'
-    $decoded = $decoded -replace '%25', '%'
-  }
-  $decoded = $decoded -replace '\\', '/'
-  if ($decoded -match '/(\.\.?)(/|$)') {
-    err "来源含 dot-segment/编码/反斜杠变体（D4 缺陷2 路径穿越）: $url"
+  # 四审加固：可信 URL 本不需编码，拒绝任何 % 编码和反斜杠（最小修复）
+  if ($url.Contains('%')) { err "可信 URL 含 % 编码（D4 缺陷2 四审）: $url" }
+  if ($url.Contains('\')) { err "可信 URL 含反斜杠（D4 缺陷2 四审）: $url" }
+  # 明文 dot-segment 检查（防御深度）
+  if ($url -match '/(\.\.?)(/|$)') {
+    err "来源含 dot-segment（D4 缺陷2）: $url"
   }
 }
 # ── D4 缺陷5: 不可变 ref 校验（白名单：仅 40hex SHA 或 vX.Y.Z[-pre] tag）──
