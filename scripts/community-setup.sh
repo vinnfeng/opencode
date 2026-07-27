@@ -161,13 +161,20 @@ else
   fi
   npm install -g "$OPENCODE_NPM_PKG" --registry="$NPM_REGISTRY" \
     || err "安装失败，请检查 npm 权限/registry"
-  # 缺陷5：装后校验实际版本，防止 registry 返回其他版本/被替换
-  INSTALLED_VER="$(npm list -g opencode-ai --depth=0 2>/dev/null | grep -oE 'opencode-ai@[0-9.]+' | head -1 | cut -d@ -f2 || true)"
-  [ -n "$INSTALLED_VER" ] || err "opencode-ai 安装后无法确认版本（D4 缺陷5）"
+  # 缺陷4 四审加固：装后通过 PATH 实际命令校验（不信任 npm metadata，防 PATH 残留旧版）
+  INSTALLED_BIN="$(command -v opencode 2>/dev/null || true)"
+  [ -n "$INSTALLED_BIN" ] || err "opencode-ai 安装后未在 PATH 找到二进制（D4 缺陷4 四审）"
+  NPM_PREFIX="$(npm config get prefix 2>/dev/null || true)"
+  case "$INSTALLED_BIN" in
+    "$NPM_PREFIX"/*) : ;; # 正确：二进制位于 npm global prefix
+    *) err "opencode 二进制路径异常（D4 缺陷4 四审）: $INSTALLED_BIN（期望在 npm prefix $NPM_PREFIX 下）" ;;
+  esac
+  INSTALLED_VER="$("$INSTALLED_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  [ -n "$INSTALLED_VER" ] || err "opencode-ai PATH 命令无法返回版本（D4 缺陷4 四审）"
   if [ "$INSTALLED_VER" != "1.18.7" ]; then
-    err "opencode-ai 实际版本 ($INSTALLED_VER) 与锁定 (1.18.7) 不符（D4 缺陷5）"
+    err "opencode-ai PATH 命令实际版本 ($INSTALLED_VER) 与锁定 (1.18.7) 不符（D4 缺陷4 四审：PATH 残留旧版/异常）"
   fi
-  ok "opencode 安装完成 ($INSTALLED_VER)"
+  ok "opencode PATH 校验通过：版本 $INSTALLED_VER，位于 $INSTALLED_BIN"
 fi
 
 # ── 3. 克隆配置仓库（D4 条件 2/3: 固定 CONFIG_REF commit SHA）──

@@ -146,12 +146,18 @@ if ($existingVer -eq "1.18.7") {
   }
   & npm install -g $OPENCODE_NPM_PKG --registry=$NPM_REGISTRY
   if ($LASTEXITCODE -ne 0) { err "安装失败，请检查 npm 权限/registry" }
-  # 缺陷5：装后校验实际版本，防止 registry 返回其他版本/被替换
-  $installedLine = & npm list -g opencode-ai --depth=0 2>$null | Select-String -Pattern 'opencode-ai@([0-9.]+)' | Select-Object -First 1
-  $installedVer = if ($installedLine) { $installedLine.Matches[0].Groups[1].Value } else { "" }
-  if (-not $installedVer) { err "opencode-ai 安装后无法确认版本（D4 缺陷5）" }
-  if ($installedVer -ne "1.18.7") { err "opencode-ai 实际版本 ($installedVer) 与锁定 (1.18.7) 不符（D4 缺陷5）" }
-  ok "opencode 安装完成 ($installedVer)"
+  # 缺陷4 四审加固：装后通过 PATH 实际命令校验（不信任 npm metadata，防 PATH 残留旧版）
+  $installedCmd = Get-Command opencode -ErrorAction SilentlyContinue
+  if (-not $installedCmd) { err "opencode-ai 安装后未在 PATH 找到二进制（D4 缺陷4 四审）" }
+  $npmPrefix = & npm config get prefix 2>$null
+  if ($installedCmd.Path -notlike "$npmPrefix*") {
+    err "opencode 二进制路径异常（D4 缺陷4 四审）: $($installedCmd.Path)（期望在 npm prefix $npmPrefix 下）"
+  }
+  $verOut = & $installedCmd.Path --version 2>$null
+  if ($verOut -match '([0-9]+\.[0-9]+\.[0-9]+)') { $installedVer = $Matches[1] } else { $installedVer = "" }
+  if (-not $installedVer) { err "opencode-ai PATH 命令无法返回版本（D4 缺陷4 四审）" }
+  if ($installedVer -ne "1.18.7") { err "opencode-ai PATH 命令实际版本 ($installedVer) 与锁定 (1.18.7) 不符（D4 缺陷4 四审：PATH 残留旧版/异常）" }
+  ok "opencode PATH 校验通过：版本 $installedVer，位于 $($installedCmd.Path)"
 }
 
 # ── 3. 克隆配置仓库（D4 条件 2/3: 固定 CONFIG_REF commit SHA）──
