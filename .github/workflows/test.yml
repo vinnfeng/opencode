@@ -14,16 +14,18 @@ jobs:
       matrix:
         settings:
           - name: linux
-            host: blacksmith-4vcpu-ubuntu-2404
+            upstream_host: blacksmith-4vcpu-ubuntu-2404
+            mirror_host: ubuntu-24.04
           - name: windows
-            host: blacksmith-4vcpu-windows-2025
-    runs-on: ${{ matrix.settings.host }}
+            upstream_host: blacksmith-4vcpu-windows-2025
+            mirror_host: windows-2025
+    runs-on: ${{ github.repository == 'anomalyco/opencode' && matrix.settings.upstream_host || matrix.settings.mirror_host }}
     defaults:
       run:
         shell: bash
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -46,12 +48,14 @@ jobs:
       matrix:
         settings:
           - name: linux
-            host: blacksmith-4vcpu-ubuntu-2404
+            upstream_host: blacksmith-4vcpu-ubuntu-2404
+            mirror_host: ubuntu-24.04
             playwright: bunx playwright install --with-deps
           - name: windows
-            host: blacksmith-4vcpu-windows-2025
+            upstream_host: blacksmith-4vcpu-windows-2025
+            mirror_host: windows-2025
             playwright: bunx playwright install
-    runs-on: ${{ matrix.settings.host }}
+    runs-on: ${{ github.repository == 'anomalyco/opencode' && matrix.settings.upstream_host || matrix.settings.mirror_host }}
     env:
       PLAYWRIGHT_BROWSERS_PATH: 0
     defaults:
@@ -59,7 +63,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -78,7 +82,7 @@ jobs:
 
       - name: Upload Playwright artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-${{ matrix.settings.name }}-${{ github.run_attempt }}
           if-no-files-found: ignore
@@ -89,7 +93,7 @@ jobs:
 
   required:
     name: test (linux)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'anomalyco/opencode' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     needs:
       - unit
       - e2e
