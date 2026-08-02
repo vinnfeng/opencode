@@ -61,7 +61,8 @@ export const Instance = {
     if (Filesystem.contains(Instance.directory, filepath)) return true
     // Non-git projects use the filesystem root as worktree, which would match
     // every absolute path. Account for both POSIX "/" and Windows drive roots.
-    if (Instance.worktree === path.parse(Instance.worktree).root) return false
+    const worktree = path.resolve(Instance.worktree)
+    if (worktree === path.parse(worktree).root) return false
     return Filesystem.contains(Instance.worktree, filepath)
   },
   state<S>(init: () => S, dispose?: (state: Awaited<S>) => Promise<void>): () => S {
