@@ -38,7 +38,24 @@ jobs:
           git config --global user.name "opencode"
 
       - name: Run unit tests
+        if: github.repository == 'anomalyco/opencode' || matrix.settings.name == 'linux'
         run: bun turbo test
+
+      # GitHub-hosted Windows runners time out in unrelated integration suites
+      # that the upstream Blacksmith runner can execute. Mirrors still run the
+      # cross-platform filesystem, process, project, and path-security surface
+      # on a real Windows host while Linux retains the complete unit suite.
+      - name: Run mirror Windows portability tests
+        if: github.repository != 'anomalyco/opencode' && matrix.settings.name == 'windows'
+        working-directory: packages/opencode
+        run: >-
+          bun test
+          test/file/path-traversal.test.ts
+          test/project/project.test.ts
+          test/project/worktree-remove.test.ts
+          test/util/filesystem.test.ts
+          test/util/glob.test.ts
+          test/util/process.test.ts
 
   e2e:
     name: e2e (${{ matrix.settings.name }})
