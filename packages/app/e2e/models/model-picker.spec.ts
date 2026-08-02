@@ -19,11 +19,12 @@ test("smoke model selection updates prompt footer", async ({ page, gotoSession }
 
   const input = dialog.getByRole("textbox").first()
 
-  const selected = dialog.locator('[data-slot="list-item"][data-selected="true"]').first()
-  await expect(selected).toBeVisible()
-
-  const other = dialog.locator('[data-slot="list-item"]:not([data-selected="true"])').first()
-  const target = (await other.count()) > 0 ? other : selected
+  // The configured model can disappear from a dynamic provider catalog. The
+  // picker should still let the user choose any available model in that case.
+  const items = dialog.locator('[data-slot="list-item"][data-key]')
+  const other = dialog.locator('[data-slot="list-item"][data-key]:not([data-selected="true"])').first()
+  const target = (await other.count()) > 0 ? other : items.first()
+  await expect(target).toBeVisible()
 
   const key = await target.getAttribute("data-key")
   if (!key) throw new Error("Failed to resolve model key from list item")
