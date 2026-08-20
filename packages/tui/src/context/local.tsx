@@ -32,6 +32,22 @@ export function parseModel(model: string) {
   }
 }
 
+export function startupModel(
+  model: string | undefined,
+  ready: boolean,
+  isValid: (model: { providerID: string; modelID: string }) => boolean,
+) {
+  if (!model || !ready) return
+  const parsed = parseModel(model)
+  if (!parsed.providerID || !parsed.modelID || !isValid(parsed)) return
+  return parsed
+}
+
+export function sessionModelToRestore<Model>(startup: string | undefined, session: Model | undefined) {
+  if (startup) return parseModel(startup)
+  return session
+}
+
 export function recentModels(
   model: { providerID: string; modelID: string },
   recent: { providerID: string; modelID: string }[],
@@ -242,6 +258,30 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             fallbackModel,
           ) ?? undefined
         )
+      })
+
+      let appliedStartModel = false
+      let rejectedStartModel = false
+      createEffect(() => {
+        if (appliedStartModel || rejectedStartModel || !args.model) return
+        const model = startupModel(args.model, modelStore.ready, isModelValid)
+        if (!model) {
+          if (modelStore.ready && sync.data.status === "complete") {
+            rejectedStartModel = true
+            toast.show({
+              message: `Model ${args.model} is not valid`,
+              variant: "warning",
+              duration: 3000,
+            })
+          }
+          return
+        }
+        const a = agent.current()
+        if (!a) return
+        appliedStartModel = true
+        setModelStore("model", a.name, model)
+        setModelStore("recent", recentModels(model, modelStore.recent))
+        save()
       })
 
       let appliedStartVariant = false
