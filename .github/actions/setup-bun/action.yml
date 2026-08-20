@@ -59,7 +59,15 @@ runs:
         # e.g. ./patches/ for standard-openapi
         # https://github.com/oven-sh/bun/issues/28147
         if [ "$RUNNER_OS" = "Windows" ]; then
-          bun install --linker hoisted ${{ inputs.install-flags }}
+          # GitHub-hosted Windows runners can fail a cold-cache hoisted install
+          # while atomically materializing a patched package. Keep upstream's
+          # preferred path, then retry from a clean job-local cache with Bun's
+          # current default linker if that installation fails.
+          if ! bun install --linker hoisted ${{ inputs.install-flags }}; then
+            bun pm cache rm
+            rm -rf node_modules
+            bun install ${{ inputs.install-flags }}
+          fi
         else
           bun install ${{ inputs.install-flags }}
         fi
