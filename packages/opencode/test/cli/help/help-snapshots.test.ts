@@ -103,7 +103,7 @@ describe("opencode CLI help-text snapshots", () => {
         expect(topLevel.stderr.endsWith("\n")).toBe(true)
         expect(topLevel.stderr).toContain("--mini")
         expect(topLevel.stderr).not.toContain("--thinking")
-        expect(topLevel.stderr).not.toContain("--variant")
+        expect(topLevel.stderr).toContain("--variant")
         expect(topLevel.stderr).not.toContain("--demo")
 
         const argvs: Array<readonly string[]> = [...TOP_LEVEL.map((c) => [c] as const), ...SUBCOMMANDS]

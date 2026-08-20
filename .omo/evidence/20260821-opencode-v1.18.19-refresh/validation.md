@@ -19,7 +19,9 @@ Timestamp: 2026-08-21 03:22:34 CST
 - `packages/app`: `bun typecheck && bun typecheck:e2e` — pass.
 - `packages/opencode`: `bun run --conditions=browser ./src/index.ts --variant high --help` — pass; default TUI help exposes `--variant`.
 - Root: `bun run script/build.ts --single --skip-install` — pass; produced the macOS arm64 carrier bundle.
-- Built preview binary: 143,727,458 bytes, SHA-256 `6c7f58fb5a0a8ee8bcaa9cf376c6340bf0ec954b28b45f0be53e9495d7c58e21`.
+- Built preview binary: 143,727,458 bytes, SHA-256 `7e772ec5784e5a79fe3dcb7cd0c9dfcd1092493e2c0b83706ed0640535f0883e`.
+- PR Linux unit follow-up: the upstream help snapshot still asserted that top-level help must omit `--variant`; the assertion now matches the intentional startup flag. The help snapshot plus the full run-process regression file pass together: 14 pass, 0 fail, 34 snapshots.
+- The same Linux run also exceeded an existing 15-second subprocess timing assertion by 346 ms under concurrent CI load; an immediate local rerun completed the target case in 9.61 seconds, so no product timeout behavior was changed.
 
 ## Scope note
 
