@@ -60,13 +60,12 @@ runs:
         # https://github.com/oven-sh/bun/issues/28147
         if [ "$RUNNER_OS" = "Windows" ]; then
           # GitHub-hosted Windows runners can fail a cold-cache hoisted install
-          # while atomically materializing a patched package. Keep upstream's
-          # preferred path, then retry from a clean job-local cache with Bun's
-          # current default linker if that installation fails.
+          # while atomically materializing a patched package. The failed pass
+          # still warms Bun's package cache, so discard only the partial
+          # node_modules tree and retry with the same upstream linker/layout.
           if ! bun install --linker hoisted ${{ inputs.install-flags }}; then
-            bun pm cache rm
             rm -rf node_modules
-            bun install ${{ inputs.install-flags }}
+            bun install --linker hoisted ${{ inputs.install-flags }}
           fi
         else
           bun install ${{ inputs.install-flags }}
