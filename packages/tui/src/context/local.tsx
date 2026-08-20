@@ -43,6 +43,11 @@ export function startupModel(
   return parsed
 }
 
+export function sessionModelToRestore<Model>(startup: string | undefined, session: Model | undefined) {
+  if (startup) return
+  return session
+}
+
 export function recentModels(
   model: { providerID: string; modelID: string },
   recent: { providerID: string; modelID: string }[],

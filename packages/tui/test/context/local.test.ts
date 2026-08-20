@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { parseModel, recentModels, startupModel } from "../../src/context/local"
+import { parseModel, recentModels, sessionModelToRestore, startupModel } from "../../src/context/local"
 
 test("parses model IDs containing slashes", () => {
   expect(parseModel("provider/family/model")).toEqual({
@@ -31,4 +31,11 @@ test("waits for providers before applying an explicit startup model", () => {
     providerID: "provider",
     modelID: "model",
   })
+})
+
+test("does not let a resumed session replace an explicit startup model", () => {
+  const previous = { providerID: "previous", modelID: "session-model", variant: "low" }
+
+  expect(sessionModelToRestore(undefined, previous)).toEqual(previous)
+  expect(sessionModelToRestore("provider/start-model", previous)).toBeUndefined()
 })
