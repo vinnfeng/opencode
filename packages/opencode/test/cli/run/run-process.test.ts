@@ -67,7 +67,11 @@ describe("opencode run (non-interactive subprocess)", () => {
   // makes the SDK call surface an error promptly so the process exits nonzero.
   // We assert nonzero exit AND wall-clock under the harness timeout — a hang
   // would expire the timeout and produce a different (signal-killed) failure.
-  cliIt.concurrent(
+  // Keep this latency-sensitive regression serial. The fork runs CI on a
+  // smaller hosted runner than upstream, and competing CLI subprocess tests
+  // can otherwise consume the entire 15s watchdog without the product path
+  // itself hanging.
+  cliIt.live(
     "exits nonzero promptly when the model is unknown (regression for #27371)",
     ({ opencode }) =>
       Effect.gen(function* () {
