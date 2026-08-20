@@ -44,7 +44,7 @@ export function startupModel(
 }
 
 export function sessionModelToRestore<Model>(startup: string | undefined, session: Model | undefined) {
-  if (startup) return
+  if (startup) return parseModel(startup)
   return session
 }
 

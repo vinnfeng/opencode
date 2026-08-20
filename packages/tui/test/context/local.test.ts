@@ -33,9 +33,12 @@ test("waits for providers before applying an explicit startup model", () => {
   })
 })
 
-test("does not let a resumed session replace an explicit startup model", () => {
+test("reapplies an explicit startup model after restoring the session agent", () => {
   const previous = { providerID: "previous", modelID: "session-model", variant: "low" }
 
   expect(sessionModelToRestore(undefined, previous)).toEqual(previous)
-  expect(sessionModelToRestore("provider/start-model", previous)).toBeUndefined()
+  expect(sessionModelToRestore("provider/start-model", previous)).toEqual({
+    providerID: "provider",
+    modelID: "start-model",
+  })
 })
