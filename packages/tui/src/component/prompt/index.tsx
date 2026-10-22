@@ -327,7 +327,7 @@ export function Prompt(props: PromptProps) {
         const sessionModel = sessionModelToRestore(args.model, msg.model)
         if (sessionModel) {
           local.model.set(sessionModel)
-          if (!args.model && !args.variant) local.model.variant.set(msg.model?.variant)
+          if (!args.model) local.model.variant.set(args.variant ?? msg.model?.variant)
         }
       }
     }

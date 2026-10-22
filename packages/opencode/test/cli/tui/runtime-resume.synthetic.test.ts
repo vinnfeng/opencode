@@ -25,6 +25,7 @@ if (!binary) {
       const base = testProviderConfig(llm.url)
       const config = {
         ...base,
+        model: "test/test-model",
         provider: { ...base.provider, test: {
           ...base.provider.test,
           models: { ...base.provider.test.models, "alternate-model": {
@@ -41,13 +42,13 @@ if (!binary) {
         OPENCODE_DB: "opencode.db",
         TERM: "xterm-256color",
       }
-      const capture = async (label: string, expected: string[], args: string[]) => {
+      const capture = async (label: string, expected: string[], args: string[], sessionID = String(session)) => {
         const socket = path.join(home, `private-tmux-${label}.sock`)
         const run = (...args: string[]) => execFileSync(tmux, ["-f", "/dev/null", "-S", socket, ...args], {
           env, encoding: "utf8",
         })
         try {
-          run("new-session", "-d", "-s", "test", "-x", "120", "-y", "40", "-c", home, binary, "--session", String(session), ...args)
+          run("new-session", "-d", "-s", "test", "-x", "120", "-y", "40", "-c", home, binary, "--session", sessionID, ...args)
           let result = ""
           for (let i = 0; i < 80; i++) {
             await Bun.sleep(250)
@@ -68,6 +69,30 @@ if (!binary) {
       expect(forced).toContain("synthetic-answer-for-resume")
       expect(forced).toContain("Alternate Model")
       expect(forced).toContain("focused")
+
+      yield* llm.text("synthetic-answer-variant-only")
+      const alternate = yield* opencode.run("synthetic alternate prompt", {
+        model: "test/alternate-model",
+        format: "json",
+        env: { OPENCODE_DB: "opencode.db", OPENCODE_CONFIG_CONTENT: JSON.stringify(config) },
+      })
+      opencode.expectExit(alternate, 0)
+      const alternateSession = opencode.parseJsonEvents(alternate.stdout)
+        .find((item) => typeof item.sessionID === "string")?.sessionID
+      expect(typeof alternateSession).toBe("string")
+      // The forced case must not preselect this model or persist its variant for this case.
+      yield* Effect.promise(() => Bun.write(path.join(home, ".local/state/opencode/model.json"), JSON.stringify({
+        recent: [], favorite: [], variant: {},
+      })))
+      const variant = yield* Effect.promise(() => capture(
+        "variant-only",
+        ["synthetic-answer-variant-only", "Alternate Model", "focused"],
+        ["--variant", "focused"],
+        String(alternateSession),
+      ))
+      expect(variant).toContain("synthetic-answer-variant-only")
+      expect(variant).toContain("Alternate Model")
+      expect(variant).toContain("focused")
     }),
     90_000,
   )
