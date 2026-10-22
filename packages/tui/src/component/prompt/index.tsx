@@ -327,7 +327,7 @@ export function Prompt(props: PromptProps) {
         const sessionModel = sessionModelToRestore(args.model, msg.model)
         if (sessionModel) {
           local.model.set(sessionModel)
-          if (!args.model && !args.variant) local.model.variant.set(msg.model?.variant)
+          if (!args.model) local.model.variant.set(args.variant ?? msg.model?.variant)
         }
       }
     }
@@ -1314,10 +1314,10 @@ export function Prompt(props: PromptProps) {
     if (store.mode === "shell") {
       if (!shell().length) return undefined
       const example = shell()[store.placeholder % shell().length]
-      return `Run a command... "${example}"`
+      return `Run a command… "${example}"`
     }
     if (!list().length) return undefined
-    return `Ask anything... "${list()[store.placeholder % list().length]}"`
+    return `Ask anything… "${list()[store.placeholder % list().length]}"`
   })
 
   const spinnerDef = createMemo(() => {
@@ -1538,7 +1538,7 @@ export function Prompt(props: PromptProps) {
                         if (!r) return
                         if (r.message.includes("exceeded your current quota") && r.message.includes("gemini"))
                           return "gemini is way too hot right now"
-                        if (r.message.length > 80) return r.message.slice(0, 80) + "..."
+                        if (r.message.length > 80) return r.message.slice(0, 80) + "…"
                         return r.message
                       })
                       const isTruncated = createMemo(() => {
@@ -1645,7 +1645,7 @@ export function Prompt(props: PromptProps) {
             </Match>
             <Match when={true}>
               {props.hint ?? (
-                <Show when={props.sessionID}>
+                <Show when={props.sessionID} fallback={<text />}>
                   <box marginLeft={1}>
                     <text fg={theme.textMuted}>{location()?.directory ?? paths.cwd}</text>
                   </box>
